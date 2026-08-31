@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     // Destructuring extracts the "prompt" property from that object.
     const { prompt } = await request.json();
 
-    console.log("Prompt received:", prompt);
+    console.log("Prompt received:", prompt); // Prompt received: Count from 1 to 20 slowly, with each number on a new line.
 
     // Send the prompt to OpenAI.
     //
