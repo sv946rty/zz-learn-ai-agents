@@ -1,184 +1,228 @@
 /**
- * Lesson 002-002 — Function / Tool Calling
+ * Lesson 002-003 — Calculator Tool
  *
  * Goal:
- * Give the model multiple tool definitions and inspect what the model
- * returns when it decides to request one of those tools.
+ * Execute ONE tool requested by the model and inspect the result.
  *
- * IMPORTANT:
- * In this lesson, we are NOT executing any tools yet.
+ * ------------------------------------------------------------
+ * WHERE WE CAME FROM
+ * ------------------------------------------------------------
  *
- * We are only learning:
+ * In Lesson 002-002, we learned how the model REQUESTS a tool:
  *
  *   User prompt
  *       ↓
- *   Model sees available tools
+ *   Model sees available tool definitions
  *       ↓
  *   Model decides which tool it needs
  *       ↓
- *   response.output contains a function_call
+ *   function_call
+ *       ↓
+ *   STOP
  *
- * Available tools:
+ * No tool was executed in Lesson 002-002.
+ *
+ *
+ * ------------------------------------------------------------
+ * WHAT WE ADD IN THIS LESSON
+ * ------------------------------------------------------------
+ *
+ * We now have real TypeScript implementations for:
  *
  *   1. calculator
  *   2. format_final_answer
  *
- * The actual tool implementations come in later lessons.
+ * The flow becomes:
  *
+ *   User prompt
+ *       ↓
+ *   Model
+ *       ↓
+ *   ONE function_call
+ *       ↓
+ *   Our application identifies the requested tool
+ *       ↓
+ *   Parse the tool arguments with JSON.parse()
+ *       ↓
+ *   Execute ONE real TypeScript function
+ *       ↓
+ *   Tool result
+ *       ↓
+ *   STOP
+ *
+ *
+ * ------------------------------------------------------------
+ * IMPORTANT — LESSON BOUNDARY
+ * ------------------------------------------------------------
+ *
+ * This lesson executes ONLY ONE tool call.
+ *
+ * We are NOT building the agent loop yet.
+ * We are NOT sending the tool result back to the model.
+ * We are NOT handling multiple or sequential tool calls yet.
+ *
+ * Example:
+ *
+ *   User:
+ *
+ *     "Use the calculator to multiply 27 by 43."
+ *
+ *       ↓
+ *
+ *   Model requests:
+ *
+ *     calculator({
+ *       operation: "multiply",
+ *       a: 27,
+ *       b: 43
+ *     })
+ *
+ *       ↓
+ *
+ *   Our application executes:
+ *
+ *     calculator("multiply", 27, 43)
+ *
+ *       ↓
+ *
+ *   Tool result:
+ *
+ *     1161
+ *
+ *       ↓
+ *
+ *   STOP
+ *
+ * Lesson 002-004 will introduce the Agent Loop:
+ *
+ *   Model
+ *       ↓
+ *   Tool
+ *       ↓
+ *   Result
+ *       ↓
+ *   Model again
+ *
+ * Later lessons will handle multiple / sequential tool calls.
  */
+
 
 /**
  * Test & Expected Output
  *
  * ------------------------------------------------------------
- * TEST 1 — Ask the model to use the calculator tool
+ * TEST 1 — Execute the calculator tool
  * ------------------------------------------------------------
  *
  * curl -X POST http://localhost:3000/api/llm \
  *   -H "Content-Type: application/json" \
  *   -d '{"prompt":"Use the calculator to multiply 27 by 43."}'
  *
- * Response:
- *
- * {
- *   "output": [
- *     {
- *       "id": "fc_09f2a50df14767f8006a9629998ae487d0b06458a87c86f458",
- *       "type": "function_call",
- *       "status": "completed",
- *       "arguments": "{\"operation\":\"multiply\",\"a\":27,\"b\":43}",
- *       "call_id": "call_bEE74tVhta8jYzRHtIvgQqcT",
- *       "name": "calculator"
- *     }
- *   ]
- * }
- *
- * What this means:
+ * Expected flow:
  *
  *   Model
- *     ↓
- *   decides it needs a tool
- *     ↓
- *   function_call
- *     ↓
- *   calculator
- *     ↓
+ *       ↓
+ *   function_call: calculator
+ *       ↓
  *   arguments:
- *     {
- *       operation: "multiply",
- *       a: 27,
- *       b: 43
- *     }
- *
- * IMPORTANT:
- * The model has NOT calculated 27 × 43 yet.
- *
- * It is only asking our application to execute:
- *
- *   calculator({
+ *   {
  *     operation: "multiply",
  *     a: 27,
  *     b: 43
- *   })
+ *   }
+ *       ↓
+ *   calculator("multiply", 27, 43)
+ *       ↓
+ *   toolResult: 1161
  *
  *
  * ------------------------------------------------------------
- * TEST 2 — Ask the model to use the format_final_answer tool
+ * TEST 2 — Execute the format_final_answer tool
  * ------------------------------------------------------------
  *
  * curl -X POST http://localhost:3000/api/llm \
  *   -H "Content-Type: application/json" \
  *   -d '{"prompt":"Use the format_final_answer tool to format the number 16254."}'
  *
- * Response:
- *
- * {
- *   "output": [
- *     {
- *       "id": "fc_004ea0eb6efd647e006a9629ee570c87d08775c2aea3b28d9b",
- *       "type": "function_call",
- *       "status": "completed",
- *       "arguments": "{\"total\":16254}",
- *       "call_id": "call_vb3JSxFtw76m6OkSUuHbT78c",
- *       "name": "format_final_answer"
- *     }
- *   ]
- * }
- *
- * What this means:
+ * Expected flow:
  *
  *   Model
- *     ↓
- *   decides it needs a tool
- *     ↓
- *   function_call
- *     ↓
- *   format_final_answer
- *     ↓
+ *       ↓
+ *   function_call: format_final_answer
+ *       ↓
  *   arguments:
- *     {
- *       total: 16254
- *     }
- *
- * Again, the model is only REQUESTING the tool.
- * Our application has not executed it yet.
+ *   {
+ *     total: 16254
+ *   }
+ *       ↓
+ *   formatFinalAnswer(16254)
+ *       ↓
+ *   toolResult: "The final answer is 16254."
  *
  *
  * ------------------------------------------------------------
  * KEY LESSON
  * ------------------------------------------------------------
  *
- * We gave the model TWO available tools:
+ * The MODEL chooses which tool to request.
  *
- *   1. calculator
- *   2. format_final_answer
+ * Our APPLICATION:
  *
- * The model selected a different tool depending on the prompt:
+ *   1. finds the function_call
+ *   2. reads the requested tool name
+ *   3. parses the arguments
+ *   4. executes the corresponding TypeScript function
+ *   5. gets the tool result
+ *   6. stops
  *
- *   Math request
+ * For Lesson 002-003:
+ *
+ *   ONE function_call → ONE tool execution → STOP
+ *
+ * We do NOT yet do:
+ *
+ *   function_call
  *       ↓
- *   calculator
- *
- *   Formatting request
+ *   tool execution
  *       ↓
- *   format_final_answer
+ *   tool result
+ *       ↓
+ *   send result back to model
+ *       ↓
+ *   model decides again
  *
- * This demonstrates an important agent concept:
- *
- *   The MODEL chooses which tool to request.
- *   Our APPLICATION is responsible for executing that tool.
- *
- * Tool execution comes in the next lesson.
+ * That is the Agent Loop introduced in Lesson 002-004.
  */
 
 import OpenAI from "openai";
 
+import {
+    calculator,
+    type CalculatorOperation,
+} from "@/lib/tools/calculator";
+
+import { formatFinalAnswer } from "@/lib/tools/format-final-answer";
+
 const openai = new OpenAI();
 
 /**
- * Describe the tools available to the model.
+ * TOOL DEFINITIONS
  *
- * These are TOOL DEFINITIONS, not tool implementations.
+ * These definitions describe our tools to the MODEL.
  *
- * Think of each definition as a contract that tells the model:
+ * They are different from the TypeScript implementations imported above.
  *
- * - the tool's name
- * - what the tool does
- * - what arguments the tool accepts
+ * Model sees:
  *
- * The model can REQUEST one of these tools.
+ *   calculator definition
+ *   format_final_answer definition
  *
- * Our application will be responsible for actually executing
- * the requested tool in later lessons.
+ * Our application owns:
+ *
+ *   calculator()
+ *   formatFinalAnswer()
  */
 const tools: OpenAI.Responses.Tool[] = [
-    /**
-     * Tool #1 — Calculator
-     *
-     * Eventually this tool will perform arithmetic.
-     *
-     * For now, we are only describing it to the model.
-     */
     {
         type: "function",
 
@@ -215,20 +259,6 @@ const tools: OpenAI.Responses.Tool[] = [
         strict: true,
     },
 
-    /**
-     * Tool #2 — Format Final Answer
-     *
-     * Eventually this tool will take a numeric result such as:
-     *
-     *   16254
-     *
-     * and produce:
-     *
-     *   "The final answer is 16254."
-     *
-     * Again, this is only the tool definition.
-     * There is no implementation yet.
-     */
     {
         type: "function",
 
@@ -257,52 +287,21 @@ const tools: OpenAI.Responses.Tool[] = [
 
 export async function POST(request: Request) {
     /**
-     * Read the prompt sent by the client.
-     *
-     * Example:
-     *
-     * {
-     *   "prompt": "Use the calculator to multiply 27 by 43."
-     * }
+     * Read the user's prompt.
      */
     const { prompt } = await request.json();
 
     console.log("Prompt received:", prompt);
 
     /**
-     * Send the prompt AND both tool definitions to the model.
+     * STEP 1
      *
-     * The model now knows:
+     * Give the model:
      *
-     *   User prompt
+     *   - the user's prompt
+     *   - the available tool definitions
      *
-     *       +
-     *
-     *   Available tools
-     *       ├── calculator
-     *       └── format_final_answer
-     *
-     *       ↓
-     *
-     *   MODEL
-     *
-     *       ↓
-     *
-     *   decides what to do
-     *
-     * The model might:
-     *
-     *   - return normal text
-     *   - request calculator
-     *   - request format_final_answer
-     *
-     * The important point is that the MODEL chooses which tool
-     * it wants based on the user's request.
-     *
-     * We intentionally do NOT use stream: true in this lesson.
-     *
-     * Waiting for the complete response makes it easier to inspect
-     * the structured function_call objects.
+     * The model decides whether it wants to request a tool.
      */
     const response = await openai.responses.create({
         model: "gpt-5.6-luna",
@@ -310,82 +309,160 @@ export async function POST(request: Request) {
         tools,
     });
 
-    /**
-     * Inspect the complete output from the model.
-     *
-     * A normal text response might contain:
-     *
-     * response.output
-     *      ↓
-     * message
-     *      ↓
-     * output_text
-     *
-     *
-     * A tool request might contain:
-     *
-     * response.output
-     *      ↓
-     * function_call
-     *      ↓
-     * name: "calculator"
-     *      ↓
-     * arguments:
-     *
-     * {
-     *   "operation": "multiply",
-     *   "a": 27,
-     *   "b": 43
-     * }
-     *
-     *
-     * Or the model could request:
-     *
-     * function_call
-     *      ↓
-     * name: "format_final_answer"
-     *      ↓
-     * arguments:
-     *
-     * {
-     *   "total": 16254
-     * }
-     *
-     *
-     * IMPORTANT:
-     *
-     * function_call means:
-     *
-     *   "Model is ASKING our application to run this tool."
-     *
-     * It does NOT mean:
-     *
-     *   "The model already ran the tool."
-     */
+    console.log("Model output:");
+
     console.dir(response.output, {
         depth: null,
     });
 
     /**
-     * Return the raw output as JSON.
+     * STEP 2
      *
-     * This lets us inspect the function_call from:
+     * Find the function_call returned by the model.
      *
-     *   1. the Next.js server console
-     *   2. curl
+     * response.output is an array because a Responses API response
+     * can contain different kinds of output items.
      *
-     * Later, instead of simply returning this function_call,
-     * our application will:
+     * For this lesson, we only want the first function_call.
+     */
+    const toolCall = response.output.find(
+        (item) => item.type === "function_call"
+    );
+
+    /**
+     * The model is allowed to return normal text instead of requesting
+     * a tool, so we must handle the case where no function_call exists.
+     */
+    if (!toolCall) {
+        return Response.json({
+            message: "The model did not request a tool.",
+            output: response.output,
+        });
+    }
+
+    /**
+     * STEP 3
      *
-     *   receive function_call
-     *          ↓
-     *   execute the requested tool
-     *          ↓
-     *   get tool result
-     *          ↓
-     *   send result back to model
+     * toolCall.arguments is JSON stored inside a STRING.
+     *
+     * Example:
+     *
+     *   '{"operation":"multiply","a":27,"b":43}'
+     *
+     * JSON.parse() converts it into a JavaScript object:
+     *
+     *   {
+     *     operation: "multiply",
+     *     a: 27,
+     *     b: 43
+     *   }
+     */
+    const args = JSON.parse(toolCall.arguments);
+
+    console.log("Tool requested:", toolCall.name);
+    console.log("Tool arguments:", args);
+
+    /**
+     * STEP 4
+     *
+     * Execute the real TypeScript function that corresponds
+     * to the tool requested by the model.
+     *
+     * Remember:
+     *
+     * MODEL:
+     *
+     *   "Please call calculator with these arguments."
+     *
+     * APPLICATION:
+     *
+     *   calculator(...)
+     *
+     * The model chooses the tool.
+     * Our application executes the tool.
+     */
+    let toolResult: number | string;
+
+    switch (toolCall.name) {
+        case "calculator": {
+            toolResult = calculator(
+                args.operation as CalculatorOperation,
+                args.a,
+                args.b
+            );
+
+            break;
+        }
+
+        case "format_final_answer": {
+            toolResult = formatFinalAnswer(args.total);
+
+            break;
+        }
+
+        default: {
+            /**
+             * Never execute a tool simply because the model requested
+             * an arbitrary function name.
+             *
+             * Our application controls exactly which tools are allowed.
+             */
+            throw new Error(
+                `Unknown tool requested: ${toolCall.name}`
+            );
+        }
+    }
+
+    console.log("Tool result:", toolResult);
+
+    /**
+     * STEP 5
+     *
+     * Return the tool request and tool result so we can inspect them.
+     *
+     * For example:
+     *
+     *   Model requests:
+     *
+     *     calculator({
+     *       operation: "multiply",
+     *       a: 27,
+     *       b: 43
+     *     })
+     *
+     *             ↓
+     *
+     *   Our application executes:
+     *
+     *     calculator("multiply", 27, 43)
+     *
+     *             ↓
+     *
+     *   Result:
+     *
+     *     1161
+     *
+     *
+     * IMPORTANT:
+     *
+     * We STOP here in Lesson 002-003.
+     *
+     * We are NOT sending 1161 back to the model yet.
+     *
+     * Lesson 002-004 will introduce the agent loop:
+     *
+     *   Model
+     *       ↓
+     *   function_call
+     *       ↓
+     *   Tool execution
+     *       ↓
+     *   Tool result
+     *       ↓
+     *   Model again
      */
     return Response.json({
-        output: response.output,
+        toolCall,
+        toolResult,
     });
 }
