@@ -1,1304 +1,1095 @@
 /**
- * Lesson 002-005 — Multiple Tool Calls
+ * Lesson 002-006 — Safety Guard (Max Iterations)
  *
  * Goal:
- * Expand our Agent Loop so that ONE model response can contain
- * MULTIPLE function_call items and our application can execute
- * ALL of them before returning their results to the model.
  *
- * The major new concept in this lesson is:
+ * Add an APPLICATION-LEVEL safety boundary to our Agent Loop.
  *
- *   ONE model response
- *       ↓
- *   MULTIPLE function_calls
- *       ↓
- *   execute ALL requested tools
- *       ↓
- *   create ALL function_call_outputs
- *       ↓
- *   send ALL results back together
- *       ↓
- *   MODEL AGAIN
+ * In Lesson 002-005, our agent could:
  *
- *
- * ============================================================
- * WHERE WE CAME FROM — LESSON 002-004
- * ============================================================
- *
- * Lesson 002-004 gave us the BASIC Agent Loop:
- *
- *   User prompt
- *       ↓
  *   Model
- *       ↓
- *   ONE function_call handled
- *       ↓
- *   Application executes calculator()
- *       ↓
- *   Tool result
- *       ↓
- *   function_call_output
- *       ↓
- *   Model again
- *       │
- *       ├── requests calculator again → LOOP
- *       │
- *       └── returns final answer       → STOP
+ *     ↓
+ *   Tool(s)
+ *     ↓
+ *   Model
+ *     ↓
+ *   Tool(s)
+ *     ↓
+ *   Model
+ *     ↓
+ *   ...
  *
+ * The model normally decides when it has enough information and
+ * returns a final answer.
  *
- * The important breakthrough in 002-004 was:
+ * But our APPLICATION had no hard limit on how many model turns
+ * it could make.
  *
- *   Tool Result → Model Again
+ * In this lesson we add:
  *
+ *   MAX_ITERATIONS
  *
- * This allowed calculator to be executed many times over the
- * lifetime of the Agent Loop.
- *
- *
- * For example:
- *
- *   MODEL RESPONSE #1
- *       ↓
- *   calculator(27, 43)
- *       ↓
- *   1161
- *       ↓
- *   MODEL AGAIN
- *
- *
- *   MODEL RESPONSE #2
- *       ↓
- *   calculator(1161, 14)
- *       ↓
- *   16254
- *       ↓
- *   MODEL AGAIN
- *
- *
- *   MODEL RESPONSE #3
- *       ↓
- *   final answer
- *
- *
- * So calculator was executed TWICE.
- *
- * But those two calculator calls came from TWO DIFFERENT
- * model responses.
+ * so the application remains in control even if the model keeps
+ * requesting tools.
  *
  *
  * ============================================================
- * THE LIMITATION OF 002-004
+ * WHERE WE CAME FROM — LESSON 002-005
  * ============================================================
  *
- * In 002-004 we used:
+ * Lesson 002-005 taught us how to handle MULTIPLE tool calls
+ * from ONE model response.
  *
- *   response.output.find(
- *       (item) => item.type === "function_call"
- *   );
+ * One model response can contain:
  *
+ *   ZERO function_calls
  *
- * .find() returns only ONE matching item.
+ *   OR
  *
+ *   ONE function_call
  *
- * Conceptually:
+ *   OR
  *
- *   response.output
- *       │
- *       ├── function_call #1
- *       ├── function_call #2
- *       └── function_call #3
- *
- *              ↓
- *
- *           .find()
- *
- *              ↓
- *
- *       function_call #1
+ *   MULTIPLE function_calls
  *
  *
- * Our 002-004 application therefore HANDLED only ONE
- * function_call from each model response.
+ * Example:
  *
- *
- * IMPORTANT:
- *
- * This does NOT mean the model is guaranteed to return only
- * one function_call.
- *
- * It means OUR 002-004 CODE intentionally handled only one.
- *
- *
- * ============================================================
- * WHAT WE ADD IN LESSON 002-005
- * ============================================================
- *
- * A single model response can contain multiple function_call
- * items.
- *
- *
- * For example:
- *
- *               ONE MODEL RESPONSE
+ *                 MODEL TURN #1
  *                       ↓
  *                response.output
  *                       ↓
  *          ┌────────────┼────────────┐
  *          ↓            ↓            ↓
- *     function_call function_call function_call
- *          #1           #2           #3
- *          ↓            ↓            ↓
  *     calculator   calculator   calculator
  *       27 × 43      81 + 19      144 ÷ 12
- *
- *
- * Our application must now:
- *
- *   1. collect ALL function_calls
- *
- *   2. execute EACH function_call
- *
- *   3. create a function_call_output for EACH call
- *
- *   4. preserve EACH call_id
- *
- *   5. collect ALL results into one array
- *
- *   6. send ALL results back to the model together
- *
- *   7. let the model decide what to do next
- *
- *
- * ============================================================
- * TOOL SCOPE — STILL CALCULATOR ONLY
- * ============================================================
- *
- * Lesson 002-003 created two tool implementations:
- *
- *   1. calculator
- *   2. format_final_answer
- *
- *
- * Lesson 002-005 still intentionally exposes ONLY:
- *
- *   calculator
- *
- *
- * We are NOT exposing:
- *
- *   format_final_answer
- *
- *
- * Why?
- *
- * Because we want this lesson to introduce exactly ONE major
- * new concept:
- *
- *   Multiple function_calls from ONE model response.
- *
- *
- * We do NOT need multiple different tool TYPES to demonstrate
- * multiple tool CALLS.
- *
- *
- * The model can request calculator several times:
- *
- *   calculator(...)
- *   calculator(...)
- *   calculator(...)
- *
- *
- * inside one model response.
- *
- *
- * ============================================================
- * .find() → .filter()
- * ============================================================
- *
- * This is the first important code change.
- *
- *
- * 002-004:
- *
- *   const toolCall = response.output.find(
- *       (item) => item.type === "function_call"
- *   );
- *
- *
- * Result:
- *
- *   ONE function_call
- *
- *   OR
- *
- *   undefined
- *
- *
- * ------------------------------------------------------------
- *
- * 002-005:
- *
- *   const toolCalls = response.output.filter(
- *       (item) => item.type === "function_call"
- *   );
- *
- *
- * Result:
- *
- *   ARRAY containing:
- *
- *   ZERO function_calls
- *
- *   OR
- *
- *   ONE function_call
- *
- *   OR
- *
- *   MULTIPLE function_calls
- *
- *
- * Example:
- *
- *   toolCalls = [
- *       function_call #1,
- *       function_call #2,
- *       function_call #3
- *   ];
- *
- *
- * ============================================================
- * IMPORTANT — AN EMPTY ARRAY IS TRUTHY
- * ============================================================
- *
- * In 002-004 we could write:
- *
- *   if (!toolCall)
- *
- *
- * because .find() returned:
- *
- *   function_call
- *
- * or:
- *
- *   undefined
- *
- *
- * But .filter() ALWAYS returns an array.
- *
- *
- * Even when there are no matches:
- *
- *   []
- *
- *
- * In JavaScript:
- *
- *   Boolean([]) === true
- *
- *
- * Therefore this would be WRONG:
- *
- *   if (!toolCalls)
- *
- *
- * because:
- *
- *   ![] === false
- *
- *
- * Instead we check:
- *
- *   if (toolCalls.length === 0)
- *
- *
- * That means:
- *
- *   "The current model response contains ZERO tool calls."
+ *          ↓            ↓            ↓
+ *        1161          100           12
+ *          └────────────┼────────────┘
+ *                       ↓
+ *                  toolOutputs[]
+ *                       ↓
+ *                 MODEL TURN #2
+ *                       ↓
+ *                  final answer
  *
  *
  * Therefore:
  *
- *   the model has finished
- *       ↓
- *   return the final answer
- *       ↓
- *   STOP
+ *   MODEL TURNS:      2
+ *
+ *   TOOL CALLS:       3
+ *
+ *   TOOL EXECUTIONS:  3
+ *
+ *
+ * This distinction becomes especially important in 002-006.
  *
  *
  * ============================================================
- * WHY WE NEED for...of
+ * THE PROBLEM WITH AN UNBOUNDED AGENT LOOP
  * ============================================================
  *
- * Once toolCalls can contain multiple items, we need to
- * execute EACH one.
+ * Our previous agent used:
+ *
+ *   while (true) {
+ *
+ *       ask model what to do
+ *
+ *       if model is finished {
+ *           return final answer
+ *       }
+ *
+ *       execute requested tools
+ *
+ *       send results back
+ *   }
+ *
+ *
+ * Normally this works.
+ *
+ * The model eventually returns a response containing:
+ *
+ *   ZERO function_calls
+ *
+ * and our application exits normally.
+ *
+ *
+ * But notice something important:
+ *
+ *   while (true)
+ *
+ * itself contains NO application-level upper bound.
+ *
+ *
+ * If the model continues requesting tools, our application can
+ * continue making additional model calls.
+ *
+ *
+ * More precisely:
+ *
+ * Without an explicit iteration limit, the agent has no
+ * APPLICATION-LEVEL bound on how many model/tool cycles it may
+ * attempt before giving up.
+ *
+ *
+ * ============================================================
+ * "SHOULDN'T THE MODEL BE SMART ENOUGH TO STOP?"
+ * ============================================================
+ *
+ * Usually, YES.
+ *
+ * A capable model will normally recognize when the task has been
+ * completed and return a final answer.
+ *
+ *
+ * For example:
+ *
+ *   MODEL TURN #1
+ *
+ *       calculator(27, 43)
+ *
+ *           ↓
+ *
+ *         1161
+ *
+ *           ↓
+ *
+ *   MODEL TURN #2
+ *
+ *       "I have the result."
+ *
+ *           ↓
+ *
+ *       final answer
+ *
+ *           ↓
+ *
+ *          STOP
+ *
+ *
+ * That is the NORMAL exit path.
+ *
+ *
+ * But there is an important engineering principle:
+ *
+ *   We EXPECT the model to stop.
+ *
+ *              ≠
+ *
+ *   We GUARANTEE the model will stop.
+ *
+ *
+ * Model behavior is probabilistic.
+ *
+ * Application safety should have deterministic boundaries.
+ *
+ *
+ * Therefore:
+ *
+ *   MODEL
+ *     ↓
+ *   decides what to do
+ *
+ *
+ *   APPLICATION
+ *     ↓
+ *   decides what is allowed
+ *
+ *
+ * The model may decide:
+ *
+ *   "I need another tool."
+ *
+ * But the application can still decide:
+ *
+ *   "You have reached the maximum number of model turns."
+ *
+ *
+ * ============================================================
+ * REALISTIC EXAMPLE #1 — SEARCH LOOP
+ * ============================================================
+ *
+ * Imagine a future agent with:
+ *
+ *   searchDatabase(query)
+ *
+ *
+ * The user asks:
+ *
+ *   "Find John's customer record and tell me his current plan."
+ *
+ *
+ * But John does not exist in the database.
+ *
+ *
+ * The agent might reasonably do:
+ *
+ *   MODEL TURN #1
+ *       ↓
+ *   searchDatabase("John")
+ *       ↓
+ *   no results
+ *
+ *
+ *   MODEL TURN #2
+ *       ↓
+ *   searchDatabase("John customer")
+ *       ↓
+ *   no results
+ *
+ *
+ *   MODEL TURN #3
+ *       ↓
+ *   searchDatabase("John account")
+ *       ↓
+ *   no results
+ *
+ *
+ *   MODEL TURN #4
+ *       ↓
+ *   "Maybe I should try another query..."
+ *
+ *
+ * Each individual decision may seem reasonable.
+ *
+ * But the requested goal remains unsatisfied.
+ *
+ * Without an application-level limit, the model may continue
+ * trying alternative searches for more turns than we want.
+ *
+ *
+ * ============================================================
+ * REALISTIC EXAMPLE #2 — STATUS / POLLING LOOP
+ * ============================================================
+ *
+ * Imagine another tool:
+ *
+ *   checkJobStatus()
+ *
+ *
+ * The user asks:
+ *
+ *   "Wait until the report is finished, then summarize it."
+ *
+ *
+ * The external job might be stuck:
+ *
+ *   MODEL TURN #1
+ *       ↓
+ *   checkJobStatus()
+ *       ↓
+ *   "processing"
+ *
+ *
+ *   MODEL TURN #2
+ *       ↓
+ *   checkJobStatus()
+ *       ↓
+ *   "processing"
+ *
+ *
+ *   MODEL TURN #3
+ *       ↓
+ *   checkJobStatus()
+ *       ↓
+ *   "processing"
+ *
+ *
+ *   MODEL TURN #4
+ *       ↓
+ *   checkJobStatus()
+ *       ↓
+ *   "processing"
+ *
+ *
+ *   ...
+ *
+ *
+ * The model's reasoning is understandable:
+ *
+ *   "The job is still processing, so check again."
+ *
+ *
+ * But if the external job never completes, the tool keeps
+ * returning the same state.
+ *
+ * Our application needs its own stopping rule.
+ *
+ *
+ * ============================================================
+ * REALISTIC EXAMPLE #3 — RECOVERY / CYCLING LOOP
+ * ============================================================
+ *
+ * Imagine an agent with:
+ *
+ *   fetchCustomer(...)
+ *
+ * and:
+ *
+ *   searchCustomer(...)
+ *
+ *
+ * It could accidentally cycle:
+ *
+ *   MODEL
+ *     ↓
+ *   fetchCustomer("123")
+ *     ↓
+ *   ERROR: customer not found
+ *     ↓
+ *
+ *   MODEL
+ *     ↓
+ *   searchCustomer("123")
+ *     ↓
+ *   no matches
+ *     ↓
+ *
+ *   MODEL
+ *     ↓
+ *   fetchCustomer("123")
+ *     ↓
+ *   ERROR
+ *     ↓
+ *
+ *   MODEL
+ *     ↓
+ *   searchCustomer("123")
+ *     ↓
+ *   no matches
+ *     ↓
+ *
+ *   ...
+ *
+ *
+ * Locally, each recovery decision may look plausible:
+ *
+ *   fetch failed
+ *       ↓
+ *   try search
+ *
+ *   search failed
+ *       ↓
+ *   maybe try fetch again
+ *
+ *
+ * But globally the agent is cycling:
+ *
+ *   A → B → A → B → A → B → ...
+ *
+ *
+ * A maximum iteration count gives the application a hard
+ * boundary around this behavior.
+ *
+ *
+ * ============================================================
+ * IMPORTANT — "FOREVER" IS SHORTHAND
+ * ============================================================
+ *
+ * When we say:
+ *
+ *   "The agent could run forever"
+ *
+ * we do NOT necessarily mean that the process would literally
+ * execute for eternity.
+ *
+ *
+ * Other infrastructure may eventually stop it:
+ *
+ *   - HTTP request timeout
+ *
+ *   - API/network failure
+ *
+ *   - rate limit
+ *
+ *   - process termination
+ *
+ *   - context/token limits
+ *
+ *   - infrastructure timeout
+ *
+ *
+ * But those are NOT the same thing as deliberately designing an
+ * application-level safety boundary.
+ *
+ *
+ * The more precise statement is:
+ *
+ *   Without an explicit iteration limit, our agent has no
+ *   application-level bound on how many model/tool cycles it
+ *   may attempt before giving up.
+ *
+ *
+ * ============================================================
+ * WHAT WE ADD IN LESSON 002-006
+ * ============================================================
+ *
+ * We define:
+ *
+ *   const MAX_ITERATIONS = 5;
+ *
+ *
+ * Then instead of:
+ *
+ *   while (true)
+ *
+ *
+ * we use a bounded outer loop:
+ *
+ *   for (
+ *       let iteration = 1;
+ *       iteration <= MAX_ITERATIONS;
+ *       iteration++
+ *   )
  *
  *
  * Conceptually:
  *
- *   for (const toolCall of toolCalls) {
+ *   MODEL TURN #1   ✓
  *
- *       parse this tool call
+ *   MODEL TURN #2   ✓
  *
- *       execute this tool call
+ *   MODEL TURN #3   ✓
  *
- *       create this tool call's result
+ *   MODEL TURN #4   ✓
  *
- *       save this result
- *   }
+ *   MODEL TURN #5   ✓
+ *
+ *   MODEL TURN #6   ✗
+ *
+ *
+ * After five model turns, the loop ends.
+ *
+ * If the model still has not produced a final answer, our
+ * application returns a safety response.
+ *
+ *
+ * ============================================================
+ * TWO DIFFERENT WAYS THE AGENT CAN STOP
+ * ============================================================
+ *
+ * We now have TWO termination paths.
+ *
+ *
+ * ------------------------------------------------------------
+ * NORMAL STOP
+ * ------------------------------------------------------------
+ *
+ * The model returns ZERO function_calls:
+ *
+ *   toolCalls.length === 0
+ *
+ *       ↓
+ *
+ *   model is finished
+ *
+ *       ↓
+ *
+ *   return final answer
+ *
+ *       ↓
+ *
+ *   HTTP 200
  *
  *
  * Example:
  *
- *   toolCalls
- *       │
- *       ├── call_A: calculator(27, 43)
- *       │
- *       ├── call_B: calculator(81, 19)
- *       │
- *       └── call_C: calculator(144, 12)
+ *   iteration 1/5
+ *       ↓
+ *   model requests calculator
+ *       ↓
+ *   execute calculator
  *
  *
- *              ↓ for...of
- *
- *
- *   ITERATION #1
- *
- *     calculator(27, 43)
- *
- *         ↓
- *
- *       1161
- *
- *
- *   ITERATION #2
- *
- *     calculator(81, 19)
- *
- *         ↓
- *
- *       100
- *
- *
- *   ITERATION #3
- *
- *     calculator(144, 12)
- *
- *         ↓
- *
- *       12
- *
- *
- * IMPORTANT:
- *
- * This for...of loop is DIFFERENT from our outer:
- *
- *   while (true)
- *
- *
- * while (true)
- *     ↓
- * controls MODEL TURNS
- *
- *
- * for...of
- *     ↓
- * handles TOOL CALLS inside ONE model response
- *
- *
- * ============================================================
- * TWO LOOPS WITH TWO DIFFERENT JOBS
- * ============================================================
- *
- * We now effectively have:
- *
- *   while (true) {
- *
- *       MODEL TURN
- *
- *       collect ALL tool calls
- *
- *       for (const toolCall of toolCalls) {
- *
- *           execute this tool
- *       }
- *
- *       send ALL results back
- *
- *   }
- *
- *
- * Think of it like this:
- *
- *   OUTER LOOP
- *   ==========
- *
- *   while (true)
- *
- *       controls:
- *
- *       MODEL → MODEL → MODEL → ...
- *
- *
- *   INNER LOOP
- *   ==========
- *
- *   for (const toolCall of toolCalls)
- *
- *       controls:
- *
- *       Tool #1
- *       Tool #2
- *       Tool #3
- *       ...
- * ============================================================
- * MODEL CALLS vs TOOL CALLS — VERY IMPORTANT
- * ============================================================
- *
- * At this point it is important to distinguish TWO different
- * kinds of "calls":
- *
- *   1. MODEL CALL
- *
- *   2. TOOL CALL
+ *   iteration 2/5
+ *       ↓
+ *   model returns final answer
+ *       ↓
+ *   toolCalls.length === 0
+ *       ↓
+ *   NORMAL STOP
  *
  *
  * ------------------------------------------------------------
- * MODEL CALL
+ * SAFETY STOP
  * ------------------------------------------------------------
  *
- * Every time our application executes:
+ * The model continues requesting tools through every allowed
+ * model iteration:
  *
- *   await openai.responses.create(...)
+ *   iteration 1/5
+ *       ↓
+ *   tools requested
  *
- * we make ONE call to the model.
+ *   iteration 2/5
+ *       ↓
+ *   tools requested
+ *
+ *   iteration 3/5
+ *       ↓
+ *   tools requested
+ *
+ *   iteration 4/5
+ *       ↓
+ *   tools requested
+ *
+ *   iteration 5/5
+ *       ↓
+ *   tools requested
+ *
+ *       ↓
+ *
+ *   for loop ends
+ *
+ *       ↓
+ *
+ *   SAFETY STOP
+ *
+ *       ↓
+ *
+ *   HTTP 508
  *
  *
- * In our code, that happens inside:
+ * ============================================================
+ * VERY IMPORTANT — WHAT DOES MAX_ITERATIONS COUNT?
+ * ============================================================
  *
- *   while (true)
+ * MAX_ITERATIONS counts:
+ *
+ *   MODEL TURNS
+ *
+ *
+ * It does NOT count:
+ *
+ *   TOOL CALLS
+ *
+ *
+ * Why?
+ *
+ * Because:
+ *
+ *   openai.responses.create(...)
+ *
+ * happens ONCE per OUTER loop iteration.
  *
  *
  * Therefore:
  *
- *   ONE while-loop iteration
+ *   ONE outer-loop iteration
+ *
  *       ↓
+ *
  *   ONE openai.responses.create(...)
+ *
  *       ↓
+ *
  *   ONE MODEL CALL / MODEL TURN
- *       ↓
- *   ONE model response
  *
  *
- * IMPORTANT:
- *
- * ONE model response can contain:
- *
- *   ZERO function_calls
- *
- *   OR
- *
- *   ONE function_call
- *
- *   OR
- *
- *   MULTIPLE function_calls
+ * But ONE model response can contain MULTIPLE tool calls.
  *
  *
- * ------------------------------------------------------------
- * TOOL CALL
- * ------------------------------------------------------------
+ * Example:
  *
- * A function_call inside response.output is a TOOL REQUEST
- * made by the model.
+ *                ITERATION 1/5
  *
+ *                       ↓
  *
- * For example, ONE model response could contain:
+ *                  MODEL TURN
  *
- *   response.output = [
+ *                       ↓
  *
- *       calculator(27, 43),
- *
- *       calculator(81, 19),
- *
- *       calculator(144, 12)
- *   ];
+ *            ┌──────────┼──────────┐
+ *            ↓          ↓          ↓
+ *          Tool #1    Tool #2    Tool #3
+ *            ↓          ↓          ↓
+ *          1161        100         12
  *
  *
- * That means:
+ * Therefore:
  *
- *   MODEL CALLS: 1
- *
- *   TOOL CALLS:  3
- *
- *
- * Our inner:
- *
- *   for (const toolCall of toolCalls)
- *
- * executes those THREE tool requests.
- *
- *
- * The for...of loop does NOT call the model again.
- *
- * It only executes the tools that the CURRENT model response
- * already requested.
- *
- *
- * ============================================================
- * WHY CAN ONE MODEL CALL REQUEST MULTIPLE TOOLS?
- * ============================================================
- *
- * Consider our 002-005 test:
- *
- *   27 × 43
- *
- *   81 + 19
- *
- *   144 ÷ 12
- *
- *
- * These calculations are INDEPENDENT.
- *
- * The second calculation does NOT need the result of the first.
- *
- * The third calculation does NOT need the result of either
- * previous calculation.
- *
- *
- * The model already knows every argument needed:
- *
- *   calculator("multiply", 27, 43)
- *
- *   calculator("add", 81, 19)
- *
- *   calculator("divide", 144, 12)
- *
- *
- * Therefore the model CAN request all three tool calls in
- * ONE model response:
- *
- *
- *                  MODEL CALL #1
- *                        ↓
- *                 ONE response
- *                        ↓
- *            ┌───────────┼───────────┐
- *            ↓           ↓           ↓
- *       calculator   calculator   calculator
- *        27 × 43      81 + 19      144 ÷ 12
- *            ↓           ↓           ↓
- *          1161         100          12
- *            └───────────┼───────────┘
- *                        ↓
- *                  toolOutputs[]
- *                        ↓
- *                  MODEL CALL #2
- *                        ↓
- *                   final answer
- *
- *
- * Notice the totals for the COMPLETE agent interaction:
- *
- *   MODEL CALLS:       2
+ *   MODEL ITERATIONS:  1
  *
  *   TOOL CALLS:        3
  *
  *   TOOL EXECUTIONS:   3
  *
  *
- * MODEL CALL #1 requested all three tools.
+ * This is perfectly valid.
  *
- * MODEL CALL #2 received all three results and produced the
- * final answer.
+ *
+ * MAX_ITERATIONS = 5 does NOT mean:
+ *
+ *   "The agent may execute only five tools."
+ *
+ *
+ * It means:
+ *
+ *   "The agent may make at most five model calls inside this
+ *    request."
  *
  *
  * ============================================================
- * WHEN DO WE NEED ANOTHER MODEL CALL?
+ * OUTER LOOP vs INNER LOOP
  * ============================================================
  *
- * Another model turn becomes necessary when the model needs
- * information produced by a tool before it can determine the
- * next action.
+ * Our architecture now contains TWO bounded/different loops.
  *
  *
- * This creates a TOOL DEPENDENCY or TOOL CHAIN.
+ * OUTER LOOP:
+ *
+ *   for (
+ *       let iteration = 1;
+ *       iteration <= MAX_ITERATIONS;
+ *       iteration++
+ *   )
+ *
+ *       ↓
+ *
+ *   controls MODEL TURNS
  *
  *
- * Imagine that we exposed TWO tools:
+ * INNER LOOP:
  *
- *   calculator
+ *   for (const toolCall of toolCalls)
  *
- *   format_final_answer
+ *       ↓
  *
- *
- * And the user asks:
- *
- *   "Use the calculator to multiply 27 by 43.
- *    Then format the final answer."
+ *   handles TOOL CALLS from the CURRENT model response
  *
  *
- * The desired dependency is:
+ * The easiest way to remember:
+ *
+ *   OUTER for = MODEL TURNS
+ *
+ *   INNER for = TOOL CALLS inside CURRENT MODEL TURN
+ *
+ *
+ * Or ask:
+ *
+ *   OUTER:
+ *   "Does the MODEL get another turn?"
+ *
+ *
+ *   INNER:
+ *   "How many tool requests did THIS model turn give us?"
+ *
+ *
+ * ============================================================
+ * WHY THE SAFETY GUARD BELONGS ON THE OUTER LOOP
+ * ============================================================
+ *
+ * Suppose one model response requests:
  *
  *   calculator(27, 43)
  *
- *       ↓
- *
- *      1161
- *
- *       ↓
- *
- *   format_final_answer(1161)
- *
- *
- * format_final_answer needs the RESULT produced by calculator.
- *
- * Therefore the calculator result must first be returned to
- * the model before the model can request the dependent tool
- * using that result.
- *
- *
- * Conceptually:
- *
- *   MODEL CALL #1
- *
- *       ↓
- *
- *   function_call:
- *
- *       calculator(27, 43)
- *
- *       ↓
- *
- *   APPLICATION executes calculator
- *
- *       ↓
- *
- *      1161
- *
- *       ↓
- *
- *   function_call_output
- *
- *       ↓
- *
- *
- *   MODEL CALL #2
- *
- *       ↓
- *
- *   The model now receives:
- *
- *       1161
- *
- *       ↓
- *
- *   function_call:
- *
- *       format_final_answer(1161)
- *
- *       ↓
- *
- *   APPLICATION executes format_final_answer
- *
- *       ↓
- *
- *   "The final answer is 1161."
- *
- *       ↓
- *
- *   function_call_output
- *
- *       ↓
- *
- *
- *   MODEL CALL #3
- *
- *       ↓
- *
- *   final assistant response
- *
- *       ↓
- *
- *   STOP
- *
- *
- * Therefore:
- *
- *   MODEL CALLS:       3
- *
- *   TOOL CALLS:        2
- *
- *   TOOL EXECUTIONS:   2
- *
- *
- * ============================================================
- * INDEPENDENT vs DEPENDENT TOOL CALLS
- * ============================================================
- *
- * INDEPENDENT:
- *
- *   Tool B does NOT need Tool A's result.
- *
- *
- * Example:
- *
- *   calculator(27, 43)
  *   calculator(81, 19)
+ *
  *   calculator(144, 12)
  *
  *
- * These CAN often be requested together:
- *
- *               ONE MODEL CALL
- *
- *               ┌────┼────┐
- *               ↓    ↓    ↓
- *             Tool Tool Tool
+ * We want ALL THREE calls to execute.
  *
  *
- * ------------------------------------------------------------
+ * It would be incorrect for:
  *
- * DEPENDENT / TOOL CHAIN:
+ *   MAX_ITERATIONS = 1
  *
- *   Tool B NEEDS Tool A's result.
+ * to stop after calculator call #1.
  *
  *
- * Example:
+ * The current model turn already requested all three tools.
  *
- *   calculator(27, 43)
+ * The application should execute the entire batch:
  *
+ *   Tool #1 ✓
+ *
+ *   Tool #2 ✓
+ *
+ *   Tool #3 ✓
+ *
+ *
+ * The safety question is asked before giving the MODEL another
+ * turn.
+ *
+ *
+ * Therefore the safety boundary belongs around MODEL TURNS,
+ * not around individual tool calls.
+ *
+ *
+ * ============================================================
+ * MAX_ITERATIONS IS A BUDGET, NOT A TARGET
+ * ============================================================
+ *
+ * MAX_ITERATIONS = 5 does NOT mean:
+ *
+ *   "Run the model exactly five times."
+ *
+ *
+ * It means:
+ *
+ *   "The model may run UP TO five times."
+ *
+ *
+ * If the task finishes on model turn #2:
+ *
+ *   iteration 1/5
  *       ↓
+ *   tools
  *
- *      1161
- *
+ *   iteration 2/5
  *       ↓
+ *   final answer
+ *       ↓
+ *   STOP
  *
- *   format_final_answer(1161)
+ *
+ * We do NOT continue with:
+ *
+ *   iteration 3
+ *   iteration 4
+ *   iteration 5
  *
  *
- * This normally requires:
+ * because:
  *
- *   MODEL
- *     ↓
- *   Tool A
- *     ↓
- *   Result A
- *     ↓
- *   MODEL
- *     ↓
- *   Tool B
- *     ↓
- *   Result B
- *     ↓
- *   MODEL
+ *   return Response.json(...)
+ *
+ * immediately ends POST().
  *
  *
  * ============================================================
- * IMPORTANT — BATCHING IS NOT GUARANTEED
+ * WHY USE A for LOOP INSTEAD OF while (true)?
  * ============================================================
  *
- * Independent tools CAN be requested together in one model
- * response.
- *
- * That does NOT mean the model is guaranteed to batch them.
- *
- * The model may still choose to request independent tools
- * across multiple model turns.
- *
- *
- * The architectural rule to remember is:
- *
- *   If Tool B needs Tool A's RESULT before Tool B's arguments
- *   can be determined, Tool A's result must become available
- *   before that dependent tool call can be performed correctly.
- *
- *
- * ============================================================
- * THE EASIEST WAY TO REMEMBER THE TWO LOOPS
- * ============================================================
+ * We could technically keep:
  *
  *   while (true)
  *
- *       ↓
- *
- *   "Does the MODEL need another turn?"
+ * and manually maintain a counter.
  *
  *
- * ------------------------------------------------------------
+ * For example:
  *
- *   for (const toolCall of toolCalls)
+ *   let iteration = 0;
  *
- *       ↓
+ *   while (true) {
  *
- *   "How many tool requests did the CURRENT model turn
- *    give our application?"
+ *       iteration++;
  *
- *
- * Or, in one line:
- *
- *   while = MODEL TURNS
- *
- *   for   = TOOL CALLS inside the CURRENT MODEL TURN
- *
- * ============================================================
- * WHY WE NEED toolOutputs[]
- * ============================================================
- *
- * In 002-004 we created ONE:
- *
- *   const toolOutput = {
- *       type: "function_call_output",
- *       ...
- *   };
- *
- *
- * and then sent:
- *
- *   agentInput = [
- *       toolOutput
- *   ];
- *
- *
- * But now we may produce:
- *
- *   toolOutput #1
- *   toolOutput #2
- *   toolOutput #3
- *
- *
- * Therefore we need an array:
- *
- *   const toolOutputs = [];
- *
- *
- * Each time we execute a tool:
- *
- *   toolOutputs.push(toolOutput);
- *
- *
- * After the for...of loop:
- *
- *   toolOutputs
- *
- * might contain:
- *
- *   [
- *       {
- *           type: "function_call_output",
- *           call_id: "call_A",
- *           output: "1161"
- *       },
- *
- *       {
- *           type: "function_call_output",
- *           call_id: "call_B",
- *           output: "100"
- *       },
- *
- *       {
- *           type: "function_call_output",
- *           call_id: "call_C",
- *           output: "12"
+ *       if (iteration > MAX_ITERATIONS) {
+ *           ...
  *       }
- *   ]
+ *   }
+ *
+ *
+ * But for this lesson, a bounded for loop expresses the policy
+ * more clearly:
+ *
+ *   for (
+ *       let iteration = 1;
+ *       iteration <= MAX_ITERATIONS;
+ *       iteration++
+ *   )
+ *
+ *
+ * The maximum number of model turns is visible directly in the
+ * loop condition.
  *
  *
  * ============================================================
- * EACH TOOL CALL HAS ITS OWN call_id
+ * IMPORTANT — THE LAST ALLOWED TURN IS STILL A REAL TURN
  * ============================================================
- *
- * This becomes even more important when handling multiple
- * tool calls.
- *
- *
- * Suppose the model returns:
- *
- *   function_call #1
- *
- *     call_id: "call_A"
- *     calculator(27, 43)
- *
- *
- *   function_call #2
- *
- *     call_id: "call_B"
- *     calculator(81, 19)
- *
- *
- *   function_call #3
- *
- *     call_id: "call_C"
- *     calculator(144, 12)
- *
- *
- * Our application executes them and creates:
- *
- *   function_call_output #1
- *
- *     call_id: "call_A"
- *     output: "1161"
- *
- *
- *   function_call_output #2
- *
- *     call_id: "call_B"
- *     output: "100"
- *
- *
- *   function_call_output #3
- *
- *     call_id: "call_C"
- *     output: "12"
- *
- *
- * Therefore:
- *
- *   call_A → result for call_A
- *
- *   call_B → result for call_B
- *
- *   call_C → result for call_C
- *
- *
- * The call_id lets the model correctly match each result
- * with the tool request that produced it.
- *
- *
- * ============================================================
- * response.id STILL HAS A DIFFERENT JOB
- * ============================================================
- *
- * Do not confuse:
- *
- *   response.id
- *
- * with:
- *
- *   toolCall.call_id
- *
- *
- * They still have two different responsibilities.
- *
- *
- * response.id
- *     ↓
- * previous_response_id
- *     ↓
- * connects MODEL TURNS
- *
- *
- * toolCall.call_id
- *     ↓
- * function_call_output.call_id
- *     ↓
- * connects EACH TOOL REQUEST to ITS TOOL RESULT
- *
- *
- * With multiple tool calls:
- *
- *                  MODEL RESPONSE
- *                       │
- *                       │ response.id
- *                       │
- *                       ▼
- *              previous_response_id
- *
- *
- * But inside that model response:
- *
- *     call_A ─────────→ result_A
- *
- *     call_B ─────────→ result_B
- *
- *     call_C ─────────→ result_C
- *
- *
- * ============================================================
- * SEND ALL RESULTS BACK TOGETHER
- * ============================================================
- *
- * After every tool call from the current model response has
- * been executed, we send:
- *
- *   agentInput = toolOutputs;
- *
- *
- * NOT:
- *
- *   agentInput = [toolOutput];
- *
- *
- * Conceptually:
- *
- *              ONE MODEL RESPONSE
- *                      ↓
- *          ┌───────────┼───────────┐
- *          ↓           ↓           ↓
- *       call_A      call_B      call_C
- *          ↓           ↓           ↓
- *       result_A    result_B    result_C
- *          │           │           │
- *          └───────────┼───────────┘
- *                      ↓
- *                 toolOutputs
- *                      ↓
- *
- *   previous_response_id + toolOutputs
- *
- *                      ↓
- *
- *                 MODEL AGAIN
- *
- *
- * Because we use previous_response_id, we do NOT manually
- * copy response.output into agentInput.
- *
- *
- * The only NEW information is:
- *
- *   all function_call_outputs produced from that response.
- *
- *
- * ============================================================
- * 002-004 vs 002-005
- * ============================================================
- *
- * This distinction is extremely important.
- *
- *
- * 002-004
- * =======
- *
- * The application HANDLED:
- *
- *   ONE function_call
- *
- * from each model response.
- *
- *
- * Example:
- *
- *   Model response #1
- *       ↓
- *   ONE tool
- *       ↓
- *   Model response #2
- *       ↓
- *   ONE tool
- *       ↓
- *   Model response #3
- *
- *
- * Pattern:
- *
- *   Model → ONE Tool → Model → ONE Tool → Model
- *
- *
- * ------------------------------------------------------------
- *
- * 002-005
- * =======
- *
- * The application can HANDLE:
- *
- *   MULTIPLE function_calls
- *
- * from ONE model response.
- *
- *
- * Example:
- *
- *                     Model
- *                       ↓
- *                ONE response
- *                       ↓
- *             ┌─────────┼─────────┐
- *             ↓         ↓         ↓
- *           Tool #1   Tool #2   Tool #3
- *             ↓         ↓         ↓
- *           Result 1  Result 2  Result 3
- *             └─────────┼─────────┘
- *                       ↓
- *                     Model
- *
- *
- * The key question is:
- *
- *   "How many tool calls can OUR APPLICATION handle
- *    from ONE model response?"
- *
- *
- * 002-004:
- *
- *   ONE
- *
- *
- * 002-005:
- *
- *   ZERO, ONE, OR MANY
- *
- *
- * ============================================================
- * INDEPENDENT vs DEPENDENT CALCULATIONS
- * ============================================================
- *
- * To clearly test multiple tool calls from ONE response, we
- * should use INDEPENDENT calculations.
- *
- *
- * Good 002-005 test:
- *
- *   27 × 43
- *
- *   81 + 19
- *
- *   144 ÷ 12
- *
- *
- * None of these calculations depends on another result.
- *
- * Therefore the model can potentially request all three
- * calculator calls in ONE model response.
- *
- *
- * Compare that with:
- *
- *   27 × 43
- *
- *       ↓
- *
- *   take THAT result × 14
- *
- *
- * The second calculation depends on the first result.
- *
- * Therefore the model normally needs:
- *
- *   Model
- *       ↓
- *   calculator #1
- *       ↓
- *   result #1
- *       ↓
- *   Model again
- *       ↓
- *   calculator #2
- *
- *
- * That was an excellent test for 002-004.
- *
- * It is NOT the clearest test for 002-005.
- *
- *
- * ============================================================
- * COMPLETE 002-005 CONTROL FLOW
- * ============================================================
- *
- * FIRST MODEL TURN
- * ------------------------------------------------------------
- *
- *   User prompt
- *       ↓
- *   Model
- *       ↓
- *   response.output
- *       ↓
- *   .filter(function_call)
- *       ↓
- *   toolCalls[]
- *
  *
  * Suppose:
  *
- *   toolCalls.length === 3
+ *   MAX_ITERATIONS = 5
  *
  *
- * Then:
- *
- *   for (const toolCall of toolCalls)
- *
- *       ↓
- *
- *   execute call #1
- *       ↓
- *   create output #1
- *       ↓
- *   push into toolOutputs
- *
- *       ↓
- *
- *   execute call #2
- *       ↓
- *   create output #2
- *       ↓
- *   push into toolOutputs
- *
- *       ↓
- *
- *   execute call #3
- *       ↓
- *   create output #3
- *       ↓
- *   push into toolOutputs
+ * Model turn #5 is still allowed to complete normally.
  *
  *
- * Now:
+ * If model turn #5 returns:
  *
- *   toolOutputs.length === 3
- *
- *
- * Then:
- *
- *   previousResponseId = response.id;
- *
- *   agentInput = toolOutputs;
+ *   ZERO function_calls
  *
  *
- *       ↓
- *
- *   while (true) begins another iteration
- *
- *
- * SECOND MODEL TURN
- * ------------------------------------------------------------
- *
- *   previous_response_id
- *
- *       +
- *
- *   [
- *       output #1,
- *       output #2,
- *       output #3
- *   ]
- *
- *       ↓
- *
- *   Model
- *
- *
- * The model can now:
- *
- *   - request more tools
- *
- * OR:
- *
- *   - return the final answer
- *
- *
- * If there are no function_calls:
+ * then:
  *
  *   toolCalls.length === 0
  *
  *       ↓
  *
- *   return Response.json(...)
+ *   return final answer
  *
  *       ↓
  *
- *   STOP
+ *   NORMAL STOP
+ *
+ *
+ * We do NOT trigger the safety response merely because:
+ *
+ *   iteration === MAX_ITERATIONS
+ *
+ *
+ * The safety response happens only AFTER all allowed iterations
+ * have completed without a final answer.
+ *
+ *
+ * ============================================================
+ * WHY THE SAFETY RESPONSE IS AFTER THE for LOOP
+ * ============================================================
+ *
+ * Inside the loop there are two possibilities:
+ *
+ *   1. model is finished
+ *
+ *          ↓
+ *
+ *      return final answer
+ *
+ *
+ *   2. model requests more tools
+ *
+ *          ↓
+ *
+ *      execute tools
+ *
+ *          ↓
+ *
+ *      prepare next model input
+ *
+ *
+ * If case #2 happens on the LAST allowed iteration, execution
+ * reaches the bottom of the loop.
+ *
+ *
+ * Then:
+ *
+ *   iteration++
+ *
+ * makes the loop condition fail.
+ *
+ *
+ * Control exits the for loop and reaches:
+ *
+ *   return Response.json(
+ *       {
+ *           error:
+ *               "Agent reached the maximum number of iterations."
+ *       },
+ *       {
+ *           status: 508
+ *       }
+ *   );
+ *
+ *
+ * That location is important.
+ *
+ * It means:
+ *
+ *   "We used every allowed model turn and STILL did not reach
+ *    the normal completion condition."
+ *
+ *
+ * ============================================================
+ * TOOL SCOPE — STILL CALCULATOR ONLY
+ * ============================================================
+ *
+ * Lesson 002-003 created:
+ *
+ *   calculator
+ *
+ * and:
+ *
+ *   format_final_answer
+ *
+ *
+ * But 002-006 still exposes ONLY:
+ *
+ *   calculator
+ *
+ *
+ * We are intentionally NOT adding another tool in this lesson.
+ *
+ *
+ * Why?
+ *
+ * Because 002-006 should introduce exactly one major new idea:
+ *
+ *   APPLICATION-LEVEL ITERATION SAFETY
+ *
+ *
+ * We will reconsider richer tool behavior when we build the
+ * full Agent UI in Lesson 002-007.
+ *
+ *
+ * ============================================================
+ * NORMAL-BEHAVIOR TEST
+ * ============================================================
+ *
+ * Keep:
+ *
+ *   const MAX_ITERATIONS = 5;
+ *
+ *
+ * Then run:
+ *
+ * curl -X POST http://localhost:3000/api/llm \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"prompt":"Use the calculator to calculate these three independent calculations: 27 multiplied by 43, 81 plus 19, and 144 divided by 12. Use the calculator for all three calculations before giving me the final answers."}'
+ *
+ *
+ * We observed:
+ *
+ *   Agent iteration 1/5
+ *
+ *       ↓
+ *
+ *   Number of tool calls requested: 3
+ *
+ *       ↓
+ *
+ *   calculator(27, 43)
+ *       → 1161
+ *
+ *   calculator(81, 19)
+ *       → 100
+ *
+ *   calculator(144, 12)
+ *       → 12
+ *
+ *       ↓
+ *
+ *   Agent iteration 2/5
+ *
+ *       ↓
+ *
+ *   Number of tool calls requested: 0
+ *
+ *       ↓
+ *
+ *   final answer
+ *
+ *       ↓
+ *
+ *   HTTP 200
+ *
+ *
+ * This proves that adding the safety guard did NOT break the
+ * normal multiple-tool-call Agent Loop.
+ *
+ *
+ * ============================================================
+ * DETERMINISTIC SAFETY-GUARD TEST
+ * ============================================================
+ *
+ * We should NOT test the safety guard by hoping that the model
+ * accidentally gets stuck.
+ *
+ * That would make the test nondeterministic.
+ *
+ *
+ * Instead, temporarily change:
+ *
+ *   const MAX_ITERATIONS = 5;
+ *
+ * to:
+ *
+ *   const MAX_ITERATIONS = 1;
+ *
+ *
+ * Then run the SAME known-good test.
+ *
+ *
+ * We already know this task normally needs:
+ *
+ *   MODEL TURN #1
+ *       ↓
+ *   three calculator calls
+ *
+ *       ↓
+ *
+ *   MODEL TURN #2
+ *       ↓
+ *   final answer
+ *
+ *
+ * But MAX_ITERATIONS = 1 allows only MODEL TURN #1.
+ *
+ *
+ * Our actual test produced:
+ *
+ *   Number of tool calls requested: 3
+ *
+ *   calculator(27, 43)
+ *       → 1161
+ *
+ *   calculator(81, 19)
+ *       → 100
+ *
+ *   calculator(144, 12)
+ *       → 12
+ *
+ *   Safety stop:
+ *   agent reached the maximum of 1 iterations.
+ *
+ *   HTTP 508
+ *
+ *
+ * This proves:
+ *
+ *   ✓ the first model turn was allowed
+ *
+ *   ✓ all THREE tool calls in that turn were executed
+ *
+ *   ✓ the application did NOT allow model turn #2
+ *
+ *   ✓ the safety response executed
+ *
+ *   ✓ MAX_ITERATIONS limits MODEL TURNS, not TOOL CALLS
+ *
+ *
+ * After the test, restore:
+ *
+ *   const MAX_ITERATIONS = 5;
+ *
+ *
+ * ============================================================
+ * NORMAL STOP vs SAFETY STOP
+ * ============================================================
+ *
+ * NORMAL:
+ *
+ *   Model
+ *     ↓
+ *   Tool(s)
+ *     ↓
+ *   Model
+ *     ↓
+ *   no function_calls
+ *     ↓
+ *   final answer
+ *     ↓
+ *   HTTP 200
+ *
+ *
+ * SAFETY:
+ *
+ *   Model
+ *     ↓
+ *   Tool(s)
+ *     ↓
+ *   Model
+ *     ↓
+ *   Tool(s)
+ *     ↓
+ *   ...
+ *     ↓
+ *   MAX_ITERATIONS exhausted
+ *     ↓
+ *   HTTP 508
  *
  *
  * ============================================================
@@ -1309,253 +1100,177 @@
  *
  *   ✓ using calculator
  *
- *   ✓ using the Agent Loop from 002-004
+ *   ✓ preserving the Agent Loop from 002-004
  *
- *   ✓ using .filter() to collect ALL function_calls
+ *   ✓ preserving multiple tool calls from 002-005
  *
- *   ✓ checking toolCalls.length
+ *   ✓ collecting all function_calls with .filter()
  *
- *   ✓ using for...of to execute each tool call
+ *   ✓ executing every tool call with for...of
  *
- *   ✓ creating one function_call_output per function_call
+ *   ✓ creating one function_call_output per tool call
  *
  *   ✓ preserving every call_id
  *
- *   ✓ collecting results in toolOutputs[]
+ *   ✓ sending all tool outputs back together
  *
- *   ✓ sending all toolOutputs back together
+ *   ✓ connecting model turns with previous_response_id
  *
- *   ✓ using response.id as previous_response_id
+ *   ✓ stopping normally when toolCalls.length === 0
  *
- *   ✓ allowing the model to request more tools on later turns
+ *   ✓ limiting the number of MODEL TURNS
  *
- *   ✓ stopping when a model response contains no tool calls
+ *   ✓ returning a safety response when the limit is exhausted
  *
  *
  * We are NOT yet:
  *
- *   ✗ using format_final_answer
- *
- *   ✗ adding a maximum iteration count
- *
- *   ✗ protecting while (true) from an infinite agent loop
+ *   ✗ exposing format_final_answer
  *
  *   ✗ building the full Agent UI
  *
  *
  * ============================================================
- * IMPORTANT — NO SAFETY GUARD YET
+ * COMPLETE 002-006 CONTROL FLOW
  * ============================================================
  *
- * Our code still uses:
+ *                 USER PROMPT
+ *                      ↓
  *
- *   while (true)
+ *              iteration = 1
+ *                      ↓
  *
+ *                   MODEL
+ *                      ↓
  *
- * without a maximum iteration count.
+ *               response.output
+ *                      ↓
  *
+ *             collect toolCalls[]
+ *                      ↓
  *
- * That is intentional.
- *
- *
- * According to our course roadmap:
- *
- *   002-005
- *       ↓
- *   Multiple Tool Calls
- *
- *   002-006
- *       ↓
- *   Safety Guard (Max Iterations)
- *
- *
- * We should NOT implement the max-iteration guard early,
- * because that would mix the next lesson into this one.
+ *              ┌───────┴───────┐
+ *              │               │
+ *          ZERO calls       1+ calls
+ *              │               │
+ *              ↓               ↓
+ *        FINAL ANSWER       for...of
+ *              │               │
+ *              ↓          execute ALL
+ *          HTTP 200            │
+ *                              ↓
+ *                         toolOutputs[]
+ *                              │
+ *                              ↓
+ *                    previousResponseId
+ *                              +
+ *                         toolOutputs[]
+ *                              │
+ *                              ↓
+ *                     another iteration?
+ *                              │
+ *                   ┌──────────┴──────────┐
+ *                   │                     │
+ *                  YES                    NO
+ *                   │                     │
+ *                   ↓                     ↓
+ *             NEXT MODEL TURN        SAFETY STOP
+ *                                         │
+ *                                         ↓
+ *                                      HTTP 508
  *
  *
  * ============================================================
  * KEY LESSON
  * ============================================================
  *
- * Lesson 002-002:
+ * The model decides:
  *
- *   Model
- *       ↓
- *   function_call
- *       ↓
- *   STOP
+ *   "What should I do next?"
  *
  *
- * Lesson 002-003:
+ * The application decides:
  *
- *   Model
- *       ↓
- *   function_call
- *       ↓
- *   Tool
- *       ↓
- *   Result
- *       ↓
- *   STOP
+ *   "How long am I willing to let this continue?"
  *
  *
- * Lesson 002-004:
- *
- *   Model
- *       ↓
- *   ONE function_call handled
- *       ↓
- *   Tool
- *       ↓
- *   Result
- *       ↓
- *   function_call_output
- *       ↓
- *   Model again
- *       │
- *       └────────────────────────↺
- *
- *
- * Lesson 002-005:
- *
- *                       Model
- *                         ↓
- *                  ONE response
- *                         ↓
- *              ┌──────────┼──────────┐
- *              ↓          ↓          ↓
- *           call #1    call #2    call #3
- *              ↓          ↓          ↓
- *           Tool #1    Tool #2    Tool #3
- *              ↓          ↓          ↓
- *           result #1  result #2  result #3
- *              └──────────┼──────────┘
- *                         ↓
- *                    Model again
- *                         │
- *                         └──────────────↺
- *
- *
- * The formula remains:
+ * Therefore:
  *
  *   Agent = Model + Tools + Control Loop
  *
  *
- * But our control loop is now capable of handling a BATCH
- * of tool calls from one model response.
+ * But a production-minded control loop also needs:
+ *
+ *   BOUNDARIES
  *
  *
- * ============================================================
- * TEST COMMAND
- * ============================================================
+ * So we can think of 002-006 as:
  *
- * We want INDEPENDENT calculations so the model has a reason
- * to request multiple calculator calls in ONE response.
- *
- *
- * curl -X POST http://localhost:3000/api/llm \
- *   -H "Content-Type: application/json" \
- *   -d '{"prompt":"Use the calculator to calculate these three independent calculations: 27 multiplied by 43, 81 plus 19, and 144 divided by 12. Use the calculator for all three calculations before giving me the final answers."}'
- *
- *
- * Expected mathematical results:
- *
- *   27 × 43 = 1161
- *
- *   81 + 19 = 100
- *
- *   144 ÷ 12 = 12
- *
- *
- * The IMPORTANT thing to inspect is NOT merely the answers.
- *
- *
- * We want the FIRST relevant model response to contain
- * multiple function_call items:
- *
- *   response.output
- *       │
- *       ├── function_call #1
- *       │     calculator(27, 43)
- *       │
- *       ├── function_call #2
- *       │     calculator(81, 19)
- *       │
- *       └── function_call #3
- *             calculator(144, 12)
- *
- *
- * Then our log should show:
- *
- *   Number of tool calls requested: 3
- *
- *
- * followed by THREE calculator executions and THREE
- * function_call_outputs.
- *
- *
- * Then:
- *
- *   agentInput = toolOutputs
- *
- *
- * sends all three results back to the model.
+ *   Agent
+ *     =
+ *   Model
+ *     +
+ *   Tools
+ *     +
+ *   Control Loop
+ *     +
+ *   Safety Boundary
  *
  *
  * ============================================================
  * DEFINITION OF DONE
  * ============================================================
  *
- * Lesson 002-005 is complete when:
+ * Lesson 002-006 is complete when:
  *
- *   ✓ response.output.filter(...) collects all function_calls
+ *   ✓ MAX_ITERATIONS exists
  *
- *   ✓ zero tool calls are detected using:
- *       toolCalls.length === 0
+ *   ✓ the outer loop is bounded
  *
- *   ✓ one model response can be handled when it contains
- *       multiple function_calls
+ *   ✓ one outer iteration equals one model turn
  *
- *   ✓ for...of executes every collected tool call
+ *   ✓ multiple tool calls can still execute inside one turn
  *
- *   ✓ each calculator request is executed
+ *   ✓ MAX_ITERATIONS does NOT count individual tool calls
  *
- *   ✓ each tool result becomes its own function_call_output
+ *   ✓ the model can still finish normally before the limit
  *
- *   ✓ every function_call_output preserves its call_id
+ *   ✓ the final allowed model turn can still return normally
  *
- *   ✓ all outputs are collected into toolOutputs[]
+ *   ✓ exhausting the model-turn budget triggers a safety stop
  *
- *   ✓ all toolOutputs are sent back together
+ *   ✓ the safety stop returns HTTP 508
  *
- *   ✓ response.id is still used as previous_response_id
+ *   ✓ MAX_ITERATIONS = 5 passes the normal behavior test
  *
- *   ✓ the model gets another turn after receiving the results
+ *   ✓ temporary MAX_ITERATIONS = 1 triggers the safety test
  *
- *   ✓ the loop stops when the model returns no function_calls
- *
- *   ✓ our independent-calculation test can demonstrate
- *       multiple tool calls from one model response
+ *   ✓ MAX_ITERATIONS is restored to 5 after testing
  *
  *
  * ============================================================
  * NEXT LESSON
  * ============================================================
  *
- * Lesson 002-006 — Safety Guard (Max Iterations)
+ * Lesson 002-007 — Agent UI
+ *
+ * We now have the important server-side pieces:
+ *
+ *   Model
+ *     +
+ *   Tool Calling
+ *     +
+ *   Tool Execution
+ *     +
+ *   Agent Loop
+ *     +
+ *   Multiple Tool Calls
+ *     +
+ *   Safety Guard
  *
  *
- * Our Agent Loop currently uses:
- *
- *   while (true)
- *
- *
- * That means a badly behaving agent could theoretically keep
- * requesting tools forever.
- *
- *
- * In 002-006 we will add a maximum iteration guard so the
- * application can safely stop an agent that does not finish.
+ * Next we will bring these pieces together into the full
+ * interactive Agent UI.
  */
 
 import OpenAI from "openai";
@@ -1568,23 +1283,37 @@ import {
 const openai = new OpenAI();
 
 /**
+ * Maximum number of MODEL TURNS allowed for one agent request.
+ *
+ * IMPORTANT:
+ *
+ * This limits calls to:
+ *
+ *   openai.responses.create(...)
+ *
+ * It does NOT limit the number of tool calls inside one model
+ * response.
+ *
+ * For example, one model turn may request:
+ *
+ *   calculator(...)
+ *   calculator(...)
+ *   calculator(...)
+ *
+ * All three tool calls may execute while consuming only ONE
+ * agent iteration.
+ */
+const MAX_ITERATIONS = 5;
+
+/**
  * TOOL DEFINITION
  *
- * Lesson 002-005 still exposes ONLY ONE tool:
+ * Lesson 002-006 intentionally continues exposing only:
  *
  *   calculator
  *
- * The new concept is NOT adding more tool types.
- *
- * The new concept is:
- *
- *   ONE model response
- *       ↓
- *   MULTIPLE function_call items
- *       ↓
- *   execute ALL of them
- *       ↓
- *   send ALL function_call_outputs back together
+ * The new concept in this lesson is the safety boundary around
+ * MODEL TURNS, not adding another tool type.
  */
 const tools: OpenAI.Responses.Tool[] = [
     {
@@ -1633,29 +1362,27 @@ export async function POST(request: Request) {
     console.log("Prompt received:", prompt);
 
     /**
-     * agentInput contains ONLY the NEW input that we want to
-     * send in the CURRENT model request.
+     * agentInput contains ONLY the NEW input for the CURRENT
+     * model request.
      *
-     *
-     * FIRST ITERATION:
+     * FIRST MODEL TURN:
      *
      *   agentInput
      *       ↓
      *   user's original prompt
      *
      *
-     * LATER ITERATIONS:
+     * LATER MODEL TURNS:
      *
      *   agentInput
      *       ↓
-     *   ALL function_call_outputs produced from the previous
-     *   model response
+     *   function_call_outputs produced from the previous model
+     *   response
      *
      *
-     * We do NOT manually copy response.output into agentInput.
-     *
-     * previousResponseId tells OpenAI which previous model
-     * response the new input continues from.
+     * We use previous_response_id to continue from the previous
+     * model response, so we do NOT manually copy response.output
+     * into agentInput.
      */
     let agentInput: OpenAI.Responses.ResponseInput = [
         {
@@ -1665,76 +1392,84 @@ export async function POST(request: Request) {
     ];
 
     /**
-     * On the first iteration there is no previous model
-     * response, so this starts as undefined.
+     * There is no previous model response on the first turn.
      *
+     * After a model requests tools:
      *
-     * After each model response:
-     *
-     *   previousResponseId = response.id;
-     *
-     *
-     * On the next model request:
-     *
-     *   previous_response_id: previousResponseId
-     *
-     *
-     * This connects:
-     *
-     *   MODEL TURN
+     *   response.id
      *       ↓
-     *   NEXT MODEL TURN
+     *   previousResponseId
+     *       ↓
+     *   previous_response_id on the next model request
+     *
+     *
+     * This connects MODEL TURNS.
+     *
+     * Remember:
+     *
+     *   response.id
+     *       ↓
+     *   connects MODEL TURNS
+     *
+     *
+     *   toolCall.call_id
+     *       ↓
+     *   connects a TOOL REQUEST to its TOOL RESULT
      */
     let previousResponseId: string | undefined;
 
     /**
-     * MULTIPLE-TOOL-CALL AGENT LOOP
+     * ==========================================================
+     * SAFETY-GUARDED AGENT LOOP
+     * ==========================================================
      *
-     * The OUTER while loop controls MODEL TURNS.
+     * 002-005 used conceptually:
      *
-     * Inside each model turn, we can now process ZERO, ONE,
-     * or MULTIPLE function_calls.
-     *
-     *
-     * Conceptually:
-     *
-     *   while (true) {
-     *
-     *       ask model what to do
-     *
-     *       collect ALL function_calls
-     *
-     *       if there are ZERO {
-     *           return final answer
-     *       }
-     *
-     *       for EACH function_call {
-     *           execute tool
-     *           create function_call_output
-     *           save output
-     *       }
-     *
-     *       send ALL outputs back
-     *
-     *       continue
-     *   }
+     *   while (true)
      *
      *
-     * IMPORTANT:
+     * 002-006 changes the OUTER loop to:
      *
-     * There is intentionally NO maximum-iteration guard yet.
+     *   for (
+     *       let iteration = 1;
+     *       iteration <= MAX_ITERATIONS;
+     *       iteration++
+     *   )
      *
-     * That belongs to Lesson 002-006.
+     *
+     * ONE outer iteration:
+     *
+     *       ↓
+     *
+     * ONE openai.responses.create(...)
+     *
+     *       ↓
+     *
+     * ONE MODEL TURN
+     *
+     *
+     * Inside that model turn, the inner for...of may still
+     * execute ZERO, ONE, or MULTIPLE tool calls.
      */
-    while (true) {
+    for (
+        let iteration = 1;
+        iteration <= MAX_ITERATIONS;
+        iteration++
+    ) {
+        console.log(
+            `Agent iteration ${iteration}/${MAX_ITERATIONS}`
+        );
+
         /**
          * STEP 1 — Ask the model what to do next.
          *
+         * Every execution of openai.responses.create(...) is ONE
+         * MODEL CALL / MODEL TURN.
          *
          * FIRST ITERATION:
          *
          *   input:
-         *       user prompt
+         *       user's original prompt
          *
          *   previous_response_id:
          *       undefined
@@ -1762,28 +1497,23 @@ export async function POST(request: Request) {
         });
 
         /**
-         * STEP 2 — Collect ALL function_call items from this
-         * model response.
+         * STEP 2 — Collect ALL tool requests from THIS model turn.
+         *
+         * .filter() gives us an array containing:
+         *
+         *   ZERO function_calls
+         *
+         *   OR
+         *
+         *   ONE function_call
+         *
+         *   OR
+         *
+         *   MULTIPLE function_calls
          *
          *
-         * 002-004 used:
-         *
-         *   .find(...)
-         *
-         * which selected ONE function_call.
-         *
-         *
-         * 002-005 uses:
-         *
-         *   .filter(...)
-         *
-         * which gives us an ARRAY containing:
-         *
-         *   ZERO
-         *   ONE
-         *   or MULTIPLE
-         *
-         * function_calls.
+         * This multiple-tool-call behavior comes from 002-005
+         * and remains unchanged in 002-006.
          */
         const toolCalls = response.output.filter(
             (item) => item.type === "function_call"
@@ -1795,35 +1525,38 @@ export async function POST(request: Request) {
         );
 
         /**
-         * STEP 3 — If there are ZERO function_calls, the model
-         * has finished its work.
+         * STEP 3 — NORMAL TERMINATION.
          *
-         *
-         * .filter() always returns an array.
-         *
-         * Therefore:
-         *
-         *   if (!toolCalls)
-         *
-         * would NOT correctly detect an empty array.
-         *
-         *
-         * We check:
+         * If the current model response contains ZERO tool calls,
+         * the model has finished.
          *
          *   toolCalls.length === 0
          *
+         *       ↓
          *
-         * If true:
+         *   final answer
          *
-         *   no tool calls
          *       ↓
-         *   model is finished
+         *
+         *   return Response.json(...)
+         *
          *       ↓
-         *   return final answer
-         *       ↓
-         *   POST() ends
-         *       ↓
-         *   while (true) ends
+         *
+         *   POST() immediately ends
+         *
+         *
+         * IMPORTANT:
+         *
+         * This can happen on ANY allowed iteration:
+         *
+         *   1/5
+         *   2/5
+         *   3/5
+         *   4/5
+         *   or 5/5
+         *
+         *
+         * MAX_ITERATIONS is a maximum, not a target.
          */
         if (toolCalls.length === 0) {
             console.log("No tools requested.");
@@ -1837,54 +1570,63 @@ export async function POST(request: Request) {
         }
 
         /**
-         * STEP 4 — Create an array for ALL tool results from
-         * THIS model response.
-         *
+         * STEP 4 — Prepare to collect ALL tool results from THIS
+         * model response.
          *
          * Example:
          *
          *   toolCalls.length === 3
          *
          *
-         * After execution we want:
+         * After execution:
          *
          *   toolOutputs = [
-         *       output for call #1,
-         *       output for call #2,
-         *       output for call #3
+         *       result for call #1,
+         *       result for call #2,
+         *       result for call #3
          *   ];
+         *
+         *
+         * IMPORTANT FOR 002-006:
+         *
+         * All three calls belong to the SAME model iteration.
          */
         const toolOutputs: OpenAI.Responses.ResponseInputItem.FunctionCallOutput[] =
             [];
 
         /**
-         * STEP 5 — Execute EVERY function_call from this
+         * STEP 5 — Execute EVERY tool request from the CURRENT
          * model response.
-         *
-         *
-         * This inner for...of loop is the major new behavior
-         * introduced in Lesson 002-005.
          *
          *
          * OUTER LOOP:
          *
-         *   while (true)
+         *   bounded for loop
          *
-         *   controls MODEL TURNS.
+         *       ↓
+         *
+         *   controls MODEL TURNS
          *
          *
          * INNER LOOP:
          *
          *   for (const toolCall of toolCalls)
          *
-         *   handles EVERY tool call inside the CURRENT
-         *   model response.
+         *       ↓
+         *
+         *   handles TOOL CALLS from ONE model response
+         *
+         *
+         * MAX_ITERATIONS applies to the OUTER loop.
+         *
+         * It does NOT stop this inner loop after some number of
+         * tool calls.
          */
         for (const toolCall of toolCalls) {
             /**
              * STEP 5A — Protect the tool boundary.
              *
-             * Lesson 002-005 still exposes only calculator.
+             * 002-006 still exposes only calculator.
              */
             if (toolCall.name !== "calculator") {
                 throw new Error(
@@ -1894,7 +1636,6 @@ export async function POST(request: Request) {
 
             /**
              * STEP 5B — Parse THIS calculator call's arguments.
-             *
              *
              * toolCall.arguments is a JSON string:
              *
@@ -1915,8 +1656,8 @@ export async function POST(request: Request) {
              *
              * IMPORTANT:
              *
-             * The TypeScript "as" assertion describes the
-             * expected compile-time shape.
+             * The TypeScript "as" assertion describes the expected
+             * compile-time shape.
              *
              * It is NOT runtime validation.
              */
@@ -1931,7 +1672,6 @@ export async function POST(request: Request) {
             /**
              * STEP 5C — Execute THIS calculator request.
              *
-             *
              * The MODEL requested the action.
              *
              * Our APPLICATION executes the action.
@@ -1945,25 +1685,23 @@ export async function POST(request: Request) {
             console.log("Calculator result:", toolResult);
 
             /**
-             * STEP 5D — Create the function_call_output for
-             * THIS specific tool request.
+             * STEP 5D — Create the function_call_output for THIS
+             * tool request.
              *
-             *
-             * The SAME call_id must be preserved:
+             * Preserve the SAME call_id:
              *
              *   function_call
              *
              *       call_id: call_A
              *
-             *            ↓
+             *           ↓
              *
              *   function_call_output
              *
              *       call_id: call_A
              *
              *
-             * With multiple tool calls, every call has its own
-             * call_id.
+             * call_id links a specific TOOL REQUEST to its result.
              */
             const toolOutput: OpenAI.Responses.ResponseInputItem.FunctionCallOutput =
             {
@@ -1979,187 +1717,152 @@ export async function POST(request: Request) {
             });
 
             /**
-             * STEP 5E — Save this result in the batch.
+             * STEP 5E — Save this result in the current batch.
              *
+             * If the model requested three tools:
              *
-             * First iteration:
-             *
-             *   toolOutputs = [
-             *       output #1
-             *   ]
-             *
-             *
-             * Second iteration:
-             *
-             *   toolOutputs = [
-             *       output #1,
-             *       output #2
-             *   ]
-             *
-             *
-             * Third iteration:
-             *
-             *   toolOutputs = [
+             *   toolOutputs
+             *       ↓
+             *   [
              *       output #1,
              *       output #2,
              *       output #3
              *   ]
+             *
+             *
+             * Again:
+             *
+             * THREE tool executions can still equal ONE model
+             * iteration.
              */
             toolOutputs.push(toolOutput);
         }
 
         /**
-         * At this point the for...of loop is finished.
+         * STEP 6 — Remember which MODEL RESPONSE the next model
+         * request will continue from.
          *
-         * Therefore EVERY function_call collected from the
-         * current model response has been executed.
-         *
-         *
-         * Example:
-         *
-         *   MODEL RESPONSE
-         *       │
-         *       ├── call_A
-         *       │      ↓
-         *       │   calculator()
-         *       │      ↓
-         *       │   result_A
-         *       │
-         *       ├── call_B
-         *       │      ↓
-         *       │   calculator()
-         *       │      ↓
-         *       │   result_B
-         *       │
-         *       └── call_C
-         *              ↓
-         *           calculator()
-         *              ↓
-         *           result_C
-         *
-         *
-         * toolOutputs now contains ALL THREE results.
-         */
-
-        /**
-         * STEP 6 — Remember which MODEL RESPONSE we are
-         * continuing from.
-         *
-         *
-         * response.id
-         *     ↓
-         * previousResponseId
-         *     ↓
-         * previous_response_id on next request
+         *   response.id
+         *       ↓
+         *   previousResponseId
+         *       ↓
+         *   previous_response_id
          *
          *
          * This connects MODEL TURNS.
-         *
-         *
-         * It is different from call_id:
-         *
-         * response.id
-         *     ↓
-         * connects MODEL TURNS
-         *
-         *
-         * toolCall.call_id
-         *     ↓
-         * connects each TOOL REQUEST to its TOOL RESULT
          */
         previousResponseId = response.id;
 
         /**
-         * STEP 7 — Make ALL tool results the NEW input for the
-         * next model request.
+         * STEP 7 — Send ALL tool results back on the NEXT model
+         * turn.
+         *
+         *              CURRENT MODEL TURN
+         *                       ↓
+         *          ┌────────────┼────────────┐
+         *          ↓            ↓            ↓
+         *       call #1      call #2      call #3
+         *          ↓            ↓            ↓
+         *       result #1    result #2    result #3
+         *          │            │            │
+         *          └────────────┼────────────┘
+         *                       ↓
+         *                  toolOutputs
+         *                       +
+         *             previous_response_id
+         *                       ↓
+         *                NEXT MODEL TURN
          *
          *
-         * 002-004:
-         *
-         *   agentInput = [
-         *       toolOutput
-         *   ];
-         *
-         *
-         * 002-005:
-         *
-         *   agentInput = toolOutputs;
-         *
-         *
-         * Conceptually:
-         *
-         *              ONE MODEL RESPONSE
-         *                      ↓
-         *          ┌───────────┼───────────┐
-         *          ↓           ↓           ↓
-         *       call #1     call #2     call #3
-         *          ↓           ↓           ↓
-         *       result #1   result #2   result #3
-         *          │           │           │
-         *          └───────────┼───────────┘
-         *                      ↓
-         *                 toolOutputs
-         *
-         *                      +
-         *
-         *            previous_response_id
-         *
-         *                      ↓
-         *
-         *                 MODEL AGAIN
-         *
-         *
-         * We do NOT manually add response.output because
-         * previous_response_id continues from that response.
-         *
-         * The only NEW information is the collection of
-         * function_call_outputs.
+         * Unless, of course, the current iteration was the LAST
+         * iteration allowed by MAX_ITERATIONS.
          */
         agentInput = toolOutputs;
 
         /**
-         * STEP 8 — Reach the end of this while-loop iteration.
+         * STEP 8 — End of the CURRENT model iteration.
          *
+         * If more iteration budget remains:
          *
-         * There is:
-         *
-         *   no return
-         *   no break
-         *
-         * here.
-         *
-         *
-         * Therefore while (true) begins another MODEL TURN.
-         *
-         *
-         * The next model response may contain:
-         *
-         *   ZERO tool calls
+         *   next outer-loop iteration
          *       ↓
-         *   final answer → STOP
+         *   another model turn
          *
          *
-         * OR:
+         * If this was the LAST allowed iteration:
          *
-         *   ONE tool call
+         *   for loop ends
          *       ↓
-         *   execute it → LOOP
-         *
-         *
-         * OR:
-         *
-         *   MULTIPLE tool calls
+         *   execution continues AFTER the loop
          *       ↓
-         *   execute ALL → LOOP
+         *   SAFETY STOP
          *
          *
-         * IMPORTANT:
+         * Example with MAX_ITERATIONS = 5:
          *
-         * There is still no maximum iteration guard.
+         *   iteration 1 → may continue
+         *   iteration 2 → may continue
+         *   iteration 3 → may continue
+         *   iteration 4 → may continue
+         *   iteration 5 → final allowed model turn
          *
-         * That is the next lesson:
          *
-         *   002-006 — Safety Guard (Max Iterations)
+         * If iteration 5 still requested tools, those tools are
+         * executed, but MODEL TURN #6 is not allowed.
          */
     }
+
+    /**
+     * ==========================================================
+     * SAFETY TERMINATION
+     * ==========================================================
+     *
+     * Reaching this code means:
+     *
+     *   ✓ every allowed model iteration was used
+     *
+     *   AND
+     *
+     *   ✗ no model response reached the normal completion
+     *     condition:
+     *
+     *       toolCalls.length === 0
+     *
+     *
+     * Therefore the application stops the agent.
+     *
+     *
+     * This is fundamentally different from the normal stop:
+     *
+     * NORMAL STOP
+     * ===========
+     *
+     *   model says:
+     *       "I'm finished."
+     *
+     *   application:
+     *       returns final answer
+     *
+     *
+     * SAFETY STOP
+     * ===========
+     *
+     *   model still wants another turn
+     *
+     *   application says:
+     *       "No more model turns are allowed."
+     */
+    console.log(
+        `Safety stop: agent reached the maximum of ${MAX_ITERATIONS} iterations.`
+    );
+
+    return Response.json(
+        {
+            error: "Agent reached the maximum number of iterations.",
+            maxIterations: MAX_ITERATIONS,
+        },
+        {
+            status: 508,
+        }
+    );
 }
