@@ -1,38 +1,26 @@
 /**
- * Lesson 002-003 — Calculator Tool
+ * Lesson 002-004 — Agent Loop (Basic)
  *
  * Goal:
- * Execute ONE tool requested by the model and inspect the result.
+ * Build the basic agent loop using ONLY the calculator tool:
+ *
+ *   Model → Calculator → Result → Model
+ *
+ * The new concept in this lesson is:
+ *
+ *   The tool result is sent BACK to the model.
+ *
+ * This allows the model to decide what to do next.
+ *
  *
  * ------------------------------------------------------------
  * WHERE WE CAME FROM
  * ------------------------------------------------------------
  *
- * In Lesson 002-002, we learned how the model REQUESTS a tool:
+ * In Lesson 002-003, the model could request a tool and our
+ * application could execute it.
  *
- *   User prompt
- *       ↓
- *   Model sees available tool definitions
- *       ↓
- *   Model decides which tool it needs
- *       ↓
- *   function_call
- *       ↓
- *   STOP
- *
- * No tool was executed in Lesson 002-002.
- *
- *
- * ------------------------------------------------------------
- * WHAT WE ADD IN THIS LESSON
- * ------------------------------------------------------------
- *
- * We now have real TypeScript implementations for:
- *
- *   1. calculator
- *   2. format_final_answer
- *
- * The flow becomes:
+ * The flow was:
  *
  *   User prompt
  *       ↓
@@ -40,26 +28,11 @@
  *       ↓
  *   ONE function_call
  *       ↓
- *   Our application identifies the requested tool
- *       ↓
- *   Parse the tool arguments with JSON.parse()
- *       ↓
- *   Execute ONE real TypeScript function
+ *   Our application executes ONE tool
  *       ↓
  *   Tool result
  *       ↓
  *   STOP
- *
- *
- * ------------------------------------------------------------
- * IMPORTANT — LESSON BOUNDARY
- * ------------------------------------------------------------
- *
- * This lesson executes ONLY ONE tool call.
- *
- * We are NOT building the agent loop yet.
- * We are NOT sending the tool result back to the model.
- * We are NOT handling multiple or sequential tool calls yet.
  *
  * Example:
  *
@@ -93,105 +66,467 @@
  *
  *   STOP
  *
- * Lesson 002-004 will introduce the Agent Loop:
+ * The important limitation was:
  *
- *   Model
- *       ↓
- *   Tool
- *       ↓
- *   Result
- *       ↓
- *   Model again
+ *   The tool result NEVER went back to the model.
  *
- * Later lessons will handle multiple / sequential tool calls.
- */
-
-
-/**
- * Test & Expected Output
  *
  * ------------------------------------------------------------
- * TEST 1 — Execute the calculator tool
+ * WHAT WE ADD IN THIS LESSON
  * ------------------------------------------------------------
  *
- * curl -X POST http://localhost:3000/api/llm \
- *   -H "Content-Type: application/json" \
- *   -d '{"prompt":"Use the calculator to multiply 27 by 43."}'
+ * We now send the calculator result BACK to the model.
  *
- * Expected flow:
+ * This creates the basic Agent Loop:
  *
+ *   User prompt
+ *       ↓
  *   Model
  *       ↓
- *   function_call: calculator
+ *   ONE function_call: calculator
  *       ↓
- *   arguments:
+ *   Our application executes calculator()
+ *       ↓
+ *   Tool result
+ *       ↓
+ *   function_call_output
+ *       ↓
+ *   Send result back to model
+ *       ↓
+ *   Model decides again
+ *       │
+ *       ├── requests calculator again → LOOP
+ *       │
+ *       └── returns final answer → STOP
+ *
+ *
+ * ------------------------------------------------------------
+ * TOOL SCOPE — CALCULATOR ONLY
+ * ------------------------------------------------------------
+ *
+ * Lesson 002-003 had two tool implementations:
+ *
+ *   1. calculator
+ *   2. format_final_answer
+ *
+ * In Lesson 002-004, we intentionally expose and execute
+ * ONLY the calculator tool.
+ *
+ * We are NOT using:
+ *
+ *   format_final_answer
+ *
+ * in this lesson.
+ *
+ * Why?
+ *
+ * We want Lesson 002-004 to focus on ONE new concept:
+ *
+ *   Tool result → Model again
+ *
+ * Keeping only calculator makes the basic Agent Loop easier
+ * to see and understand.
+ *
+ *
+ * ------------------------------------------------------------
+ * THE CONTROL LOOP
+ * ------------------------------------------------------------
+ *
+ * Our application now controls repeated model turns using:
+ *
+ *   while (true) {
+ *
+ *       ask the model what to do
+ *
+ *       if the model requests ONE calculator call {
+ *           execute calculator()
+ *           create function_call_output
+ *           send the result back to the model
+ *           continue
+ *       }
+ *
+ *       model is finished
+ *       break
+ *   }
+ *
+ * The MODEL decides what should happen next.
+ *
+ * Our APPLICATION:
+ *
+ *   - controls the loop
+ *   - executes calculator()
+ *   - returns the calculator result to the model
+ *
+ *
+ * ------------------------------------------------------------
+ * FUNCTION CALL → FUNCTION CALL OUTPUT
+ * ------------------------------------------------------------
+ *
+ * Suppose the model returns:
+ *
+ *   {
+ *     type: "function_call",
+ *     call_id: "call_ABC123",
+ *     name: "calculator",
+ *     arguments: "{\"operation\":\"multiply\",\"a\":27,\"b\":43}"
+ *   }
+ *
+ * Our application parses the arguments:
+ *
+ *   JSON.parse(toolCall.arguments)
+ *
+ *       ↓
+ *
  *   {
  *     operation: "multiply",
  *     a: 27,
  *     b: 43
  *   }
- *       ↓
+ *
+ * Then our application executes:
+ *
  *   calculator("multiply", 27, 43)
+ *
+ * and gets:
+ *
+ *   1161
+ *
+ * We then create a function_call_output:
+ *
+ *   {
+ *     type: "function_call_output",
+ *     call_id: "call_ABC123",
+ *     output: "1161"
+ *   }
+ *
+ *
+ * ------------------------------------------------------------
+ * WHY call_id MATTERS
+ * ------------------------------------------------------------
+ *
+ * The model originally gives us:
+ *
+ *   function_call
+ *       │
+ *       └── call_id: "call_ABC123"
+ *
+ * When we return the result, we use the SAME call_id:
+ *
+ *   function_call_output
+ *       │
+ *       └── call_id: "call_ABC123"
+ *
+ * This connects:
+ *
+ *   MODEL REQUEST                    APPLICATION RESULT
+ *
+ *   function_call                   function_call_output
+ *        │                                  │
+ *        │                                  │
+ *   call_ABC123  ─────────────────→    call_ABC123
+ *        │                                  │
+ *   calculator(...)                    output: "1161"
+ *
+ * The call_id tells the model:
+ *
+ *   "1161 is the result of this specific calculator request."
+ *
+ *
+ * ------------------------------------------------------------
+ * MODEL GETS ANOTHER TURN
+ * ------------------------------------------------------------
+ *
+ * After receiving:
+ *
+ *   function_call_output
  *       ↓
- *   toolResult: 1161
+ *   output: "1161"
+ *
+ * the model gets another turn.
+ *
+ * The model can now decide:
+ *
+ *                   Model
+ *                     │
+ *             ┌───────┴───────┐
+ *             │               │
+ *             ▼               ▼
+ *      calculator again    final answer
+ *             │               │
+ *             ▼               ▼
+ *           LOOP             STOP
+ *
+ * If the model requests calculator again, our while loop
+ * performs another iteration.
  *
  *
  * ------------------------------------------------------------
- * TEST 2 — Execute the format_final_answer tool
+ * IMPORTANT — ONE TOOL CALL PER LOOP ITERATION
  * ------------------------------------------------------------
  *
- * curl -X POST http://localhost:3000/api/llm \
- *   -H "Content-Type: application/json" \
- *   -d '{"prompt":"Use the format_final_answer tool to format the number 16254."}'
+ * This lesson teaches the BASIC Agent Loop.
  *
- * Expected flow:
+ * Each loop iteration handles ONLY ONE function_call.
+ *
+ * For one iteration:
  *
  *   Model
  *       ↓
- *   function_call: format_final_answer
+ *   ONE calculator function_call
  *       ↓
- *   arguments:
- *   {
- *     total: 16254
- *   }
+ *   ONE calculator execution
  *       ↓
- *   formatFinalAnswer(16254)
+ *   ONE function_call_output
  *       ↓
- *   toolResult: "The final answer is 16254."
+ *   Model again
+ *
+ * If the model requests calculator again, that happens during
+ * ANOTHER iteration of the while loop.
+ *
+ * Example:
+ *
+ *   Iteration 1
+ *
+ *     Model
+ *       ↓
+ *     calculator()
+ *       ↓
+ *     result
+ *       ↓
+ *     Model again
+ *
+ *   Iteration 2
+ *
+ *     Model
+ *       ↓
+ *     calculator()
+ *       ↓
+ *     result
+ *       ↓
+ *     Model again
+ *
+ *   Iteration 3
+ *
+ *     Model
+ *       ↓
+ *     final answer
+ *       ↓
+ *     STOP
+ *
+ *
+ * ------------------------------------------------------------
+ * IMPORTANT — WHAT WE ARE NOT DOING YET
+ * ------------------------------------------------------------
+ *
+ * We ARE now:
+ *
+ *   ✓ using calculator
+ *   ✓ executing calculator()
+ *   ✓ creating function_call_output
+ *   ✓ sending the calculator result back to the model
+ *   ✓ allowing the model to decide again
+ *   ✓ repeating model turns with while (true)
+ *
+ * We are NOT yet:
+ *
+ *   ✗ using format_final_answer
+ *   ✗ collecting multiple function_calls from one model response
+ *   ✗ executing multiple tool calls during one loop iteration
+ *   ✗ using .filter() to collect all function_calls
+ *   ✗ using for...of to execute a batch of tool calls
+ *
+ * In particular, we are NOT doing this yet:
+ *
+ *   ONE model response
+ *       ↓
+ *   function_call #1
+ *   function_call #2
+ *   function_call #3
+ *       ↓
+ *   execute all tool calls
+ *
+ * That belongs to:
+ *
+ *   Lesson 002-005 — Multiple Tool Calls
  *
  *
  * ------------------------------------------------------------
  * KEY LESSON
  * ------------------------------------------------------------
  *
- * The MODEL chooses which tool to request.
+ * Lesson 002-002:
  *
- * Our APPLICATION:
+ *   Model → function_call → STOP
  *
- *   1. finds the function_call
- *   2. reads the requested tool name
- *   3. parses the arguments
- *   4. executes the corresponding TypeScript function
- *   5. gets the tool result
- *   6. stops
+ * Lesson 002-003:
  *
- * For Lesson 002-003:
+ *   Model → function_call → Tool → Result → STOP
  *
- *   ONE function_call → ONE tool execution → STOP
+ * Lesson 002-004:
  *
- * We do NOT yet do:
- *
+ *   Model
+ *       ↓
  *   function_call
  *       ↓
- *   tool execution
+ *   Calculator
  *       ↓
- *   tool result
+ *   Result
  *       ↓
- *   send result back to model
+ *   function_call_output
  *       ↓
- *   model decides again
+ *   Model again
+ *       │
+ *       └────────────────────↺
  *
- * That is the Agent Loop introduced in Lesson 002-004.
+ * The basic formula is:
+ *
+ *   Agent = Model + Tool + Control Loop
+ */
+
+
+/**
+ * Test & Expected Behavior
+ *
+ * ------------------------------------------------------------
+ * TEST — Basic Agent Loop with Calculator
+ * ------------------------------------------------------------
+ *
+ * curl -X POST http://localhost:3000/api/llm \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"prompt":"Use the calculator to multiply 27 by 43. Then tell me the result."}'
+ *
+ *
+ * ------------------------------------------------------------
+ * EXPECTED FLOW
+ * ------------------------------------------------------------
+ *
+ * STEP 1 — User sends the prompt
+ *
+ *   "Use the calculator to multiply 27 by 43.
+ *    Then tell me the result."
+ *
+ *       ↓
+ *
+ * STEP 2 — Model requests calculator
+ *
+ *   function_call
+ *
+ *   {
+ *     name: "calculator",
+ *     call_id: "...",
+ *     arguments:
+ *       "{\"operation\":\"multiply\",\"a\":27,\"b\":43}"
+ *   }
+ *
+ *       ↓
+ *
+ * STEP 3 — Application parses the arguments
+ *
+ *   {
+ *     operation: "multiply",
+ *     a: 27,
+ *     b: 43
+ *   }
+ *
+ *       ↓
+ *
+ * STEP 4 — Application executes calculator
+ *
+ *   calculator("multiply", 27, 43)
+ *
+ *       ↓
+ *
+ *   1161
+ *
+ *       ↓
+ *
+ * STEP 5 — Application creates function_call_output
+ *
+ *   {
+ *     type: "function_call_output",
+ *     call_id: "...",
+ *     output: "1161"
+ *   }
+ *
+ *       ↓
+ *
+ * STEP 6 — Tool result goes BACK to the model
+ *
+ *   Model receives:
+ *
+ *     calculator result = 1161
+ *
+ *       ↓
+ *
+ * STEP 7 — Model gets another turn
+ *
+ *   The model now knows the result of the calculator call.
+ *
+ *       ↓
+ *
+ * STEP 8 — Model returns the final answer
+ *
+ *   Example:
+ *
+ *     "The result is 1161."
+ *
+ *       ↓
+ *
+ *   No function_call
+ *
+ *       ↓
+ *
+ *   STOP
+ *
+ *
+ * ------------------------------------------------------------
+ * WHAT THIS TEST PROVES
+ * ------------------------------------------------------------
+ *
+ * The important result is NOT simply:
+ *
+ *   calculator() returned 1161
+ *
+ * We already proved that in Lesson 002-003.
+ *
+ * Lesson 002-004 proves that:
+ *
+ *   1. the model requests calculator
+ *   2. our application executes calculator()
+ *   3. our application gets the tool result
+ *   4. our application creates function_call_output
+ *   5. the result is sent back to the model
+ *   6. the model gets another turn
+ *   7. the loop continues if another calculator call is requested
+ *   8. the loop stops when the model returns a final answer
+ *
+ *
+ * ------------------------------------------------------------
+ * LESSON BOUNDARY
+ * ------------------------------------------------------------
+ *
+ * For Lesson 002-004:
+ *
+ *   ONE function_call per iteration
+ *       ↓
+ *   ONE calculator execution
+ *       ↓
+ *   ONE function_call_output
+ *       ↓
+ *   MODEL AGAIN
+ *
+ * We are deliberately NOT using format_final_answer and
+ * NOT handling multiple function_calls from one model response.
+ *
+ *
+ * ------------------------------------------------------------
+ * NEXT LESSON
+ * ------------------------------------------------------------
+ *
+ * Lesson 002-005 — Multiple Tool Calls
+ *
+ * There we will expand beyond the basic single-tool-call
+ * agent loop and learn how to handle multiple tool calls.
  */
 
 import OpenAI from "openai";
@@ -201,26 +536,21 @@ import {
     type CalculatorOperation,
 } from "@/lib/tools/calculator";
 
-import { formatFinalAnswer } from "@/lib/tools/format-final-answer";
-
 const openai = new OpenAI();
 
 /**
- * TOOL DEFINITIONS
+ * TOOL DEFINITION
  *
- * These definitions describe our tools to the MODEL.
+ * Lesson 002-004 intentionally exposes ONLY ONE tool:
  *
- * They are different from the TypeScript implementations imported above.
+ *   calculator
  *
- * Model sees:
+ * format_final_answer still exists in our project, but we are
+ * deliberately NOT exposing it to the model in this lesson.
  *
- *   calculator definition
- *   format_final_answer definition
+ * This lets us focus entirely on the new concept:
  *
- * Our application owns:
- *
- *   calculator()
- *   formatFinalAnswer()
+ *   Tool result → Model again
  */
 const tools: OpenAI.Responses.Tool[] = [
     {
@@ -258,211 +588,404 @@ const tools: OpenAI.Responses.Tool[] = [
 
         strict: true,
     },
-
-    {
-        type: "function",
-
-        name: "format_final_answer",
-
-        description:
-            'Format a numeric result as "The final answer is <total>."',
-
-        parameters: {
-            type: "object",
-
-            properties: {
-                total: {
-                    type: "number",
-                    description: "The final numeric result.",
-                },
-            },
-
-            required: ["total"],
-            additionalProperties: false,
-        },
-
-        strict: true,
-    },
 ];
 
 export async function POST(request: Request) {
     /**
-     * Read the user's prompt.
+     * Read the user's original prompt.
      */
     const { prompt } = await request.json();
 
     console.log("Prompt received:", prompt);
 
     /**
-     * STEP 1
+     * agentInput contains what we want to send in the CURRENT
+     * model request.
      *
-     * Give the model:
+     * On the first iteration:
      *
-     *   - the user's prompt
-     *   - the available tool definitions
+     *   agentInput
+     *       ↓
+     *   user's original prompt
      *
-     * The model decides whether it wants to request a tool.
+     * After calculator executes:
+     *
+     *   agentInput
+     *       ↓
+     *   function_call_output
+     *
+     * We do NOT manually copy response.output into agentInput.
+     *
+     * Instead, previousResponseId tells OpenAI which previous
+     * model response this new input continues from.
      */
-    const response = await openai.responses.create({
-        model: "gpt-5.6-luna",
-        input: prompt,
-        tools,
-    });
-
-    console.log("Model output:");
-
-    console.dir(response.output, {
-        depth: null,
-    });
+    let agentInput: OpenAI.Responses.ResponseInput = [
+        {
+            role: "user",
+            content: prompt,
+        },
+    ];
 
     /**
-     * STEP 2
+     * On the first iteration there is no previous model response,
+     * so this starts as undefined.
      *
-     * Find the function_call returned by the model.
+     * After the model responds, we save:
      *
-     * response.output is an array because a Responses API response
-     * can contain different kinds of output items.
+     *   response.id
      *
-     * For this lesson, we only want the first function_call.
+     * and use it on the next iteration as:
+     *
+     *   previous_response_id
+     *
+     * This allows the next model request to continue from the
+     * previous model response without manually copying
+     * response.output into agentInput.
      */
-    const toolCall = response.output.find(
-        (item) => item.type === "function_call"
-    );
+    let previousResponseId: string | undefined;
 
     /**
-     * The model is allowed to return normal text instead of requesting
-     * a tool, so we must handle the case where no function_call exists.
+     * BASIC AGENT LOOP
+     *
+     * Keep asking the model what to do until it stops requesting
+     * the calculator tool.
+     *
+     * IMPORTANT:
+     *
+     * Each iteration handles ONLY ONE function_call.
+     *
+     * Multiple function_calls from a single model response will
+     * be handled in Lesson 002-005.
      */
-    if (!toolCall) {
-        return Response.json({
-            message: "The model did not request a tool.",
-            output: response.output,
+    while (true) {
+        /**
+         * STEP 1 — Ask the model what to do next.
+         *
+         * FIRST ITERATION:
+         *
+         *   input: user prompt
+         *
+         *   previous_response_id:
+         *       undefined
+         *
+         *
+         * LATER ITERATION:
+         *
+         *   input:
+         *       function_call_output
+         *
+         *   previous_response_id:
+         *       ID of the previous model response
+         *
+         *
+         * Conceptually:
+         *
+         *   previous model response
+         *           │
+         *           │ response.id
+         *           ▼
+         *   previous_response_id
+         *
+         *           +
+         *
+         *   function_call_output
+         *
+         *           ↓
+         *
+         *       MODEL AGAIN
+         */
+        const response = await openai.responses.create({
+            model: "gpt-5.6-luna",
+            input: agentInput,
+            tools,
+            previous_response_id: previousResponseId,
         });
-    }
 
-    /**
-     * STEP 3
-     *
-     * toolCall.arguments is JSON stored inside a STRING.
-     *
-     * Example:
-     *
-     *   '{"operation":"multiply","a":27,"b":43}'
-     *
-     * JSON.parse() converts it into a JavaScript object:
-     *
-     *   {
-     *     operation: "multiply",
-     *     a: 27,
-     *     b: 43
-     *   }
-     */
-    const args = JSON.parse(toolCall.arguments);
+        console.log("Model output:");
 
-    console.log("Tool requested:", toolCall.name);
-    console.log("Tool arguments:", args);
+        console.dir(response.output, {
+            depth: null,
+        });
 
-    /**
-     * STEP 4
-     *
-     * Execute the real TypeScript function that corresponds
-     * to the tool requested by the model.
-     *
-     * Remember:
-     *
-     * MODEL:
-     *
-     *   "Please call calculator with these arguments."
-     *
-     * APPLICATION:
-     *
-     *   calculator(...)
-     *
-     * The model chooses the tool.
-     * Our application executes the tool.
-     */
-    let toolResult: number | string;
+        /**
+         * STEP 2 — Find ONE function_call.
+         *
+         * We intentionally use .find(), not .filter().
+         *
+         * .find()
+         *     ↓
+         * ONE function_call
+         *
+         * .filter()
+         *     ↓
+         * potentially MULTIPLE function_calls
+         *
+         * Multiple tool-call handling belongs to Lesson 002-005.
+         */
+        const toolCall = response.output.find(
+            (item) => item.type === "function_call"
+        );
 
-    switch (toolCall.name) {
-        case "calculator": {
-            toolResult = calculator(
-                args.operation as CalculatorOperation,
-                args.a,
-                args.b
-            );
+        /**
+         * STEP 3 — If there is NO function_call, the model has
+         * finished its work.
+         *
+         * Example:
+         *
+         *   response.output
+         *       ↓
+         *   message
+         *       ↓
+         *   output_text
+         *       ↓
+         *   "The result is 1161."
+         *
+         * There is no calculator request.
+         *
+         * Therefore:
+         *
+         *   STOP THE AGENT LOOP.
+         *
+         * Returning from POST() also exits while (true).
+         */
+        if (!toolCall) {
+            console.log("No tool requested.");
+            console.log("Agent finished.");
+            console.log("Final answer:", response.output_text);
 
-            break;
+            return Response.json({
+                output: response.output,
+                answer: response.output_text,
+            });
         }
 
-        case "format_final_answer": {
-            toolResult = formatFinalAnswer(args.total);
-
-            break;
-        }
-
-        default: {
-            /**
-             * Never execute a tool simply because the model requested
-             * an arbitrary function name.
-             *
-             * Our application controls exactly which tools are allowed.
-             */
+        /**
+         * STEP 4 — Protect the tool boundary.
+         *
+         * Lesson 002-004 exposes only calculator.
+         *
+         * Therefore calculator is the only function our
+         * application is willing to execute.
+         */
+        if (toolCall.name !== "calculator") {
             throw new Error(
                 `Unknown tool requested: ${toolCall.name}`
             );
         }
+
+        /**
+         * STEP 5 — Parse the calculator arguments.
+         *
+         * toolCall.arguments is a JSON STRING:
+         *
+         *   '{"operation":"multiply","a":27,"b":43}'
+         *
+         *                 ↓
+         *
+         *             JSON.parse()
+         *
+         *                 ↓
+         *
+         *   {
+         *     operation: "multiply",
+         *     a: 27,
+         *     b: 43
+         *   }
+         *
+         * The TypeScript assertion describes the shape we expect.
+         *
+         * IMPORTANT:
+         *
+         * "as" is a compile-time TypeScript assertion.
+         * It is NOT runtime validation.
+         */
+        const args = JSON.parse(toolCall.arguments) as {
+            operation: CalculatorOperation;
+            a: number;
+            b: number;
+        };
+
+        console.log("Calculator arguments:", args);
+
+        /**
+         * STEP 6 — Execute the real calculator function.
+         *
+         * The MODEL requested the action.
+         *
+         * Our APPLICATION executes the action.
+         */
+        const toolResult = calculator(
+            args.operation,
+            args.a,
+            args.b
+        );
+
+        console.log("Calculator result:", toolResult);
+
+        /**
+         * STEP 7 — Create function_call_output.
+         *
+         * The SAME call_id must be used so the model can connect:
+         *
+         *   function_call
+         *
+         *       call_id: call_ABC123
+         *
+         *              ↓
+         *
+         *   function_call_output
+         *
+         *       call_id: call_ABC123
+         *       output: "1161"
+         *
+         *
+         * call_id answers:
+         *
+         *   "Which specific tool call does this result belong to?"
+         */
+        const toolOutput: OpenAI.Responses.ResponseInputItem.FunctionCallOutput =
+        {
+            type: "function_call_output",
+            call_id: toolCall.call_id,
+            output: String(toolResult),
+        };
+
+        console.log("Function call output:");
+
+        console.dir(toolOutput, {
+            depth: null,
+        });
+
+        /**
+         * STEP 8 — Remember the model response we are continuing from.
+         *
+         * Every Responses API response has its own response.id.
+         *
+         * Example:
+         *
+         *   response.id
+         *       ↓
+         *   "resp_ABC123"
+         *
+         * On the NEXT iteration we send:
+         *
+         *   previous_response_id: "resp_ABC123"
+         *
+         * This tells OpenAI:
+         *
+         *   "Continue from that previous model response."
+         *
+         *
+         * IMPORTANT:
+         *
+         * response.id and toolCall.call_id have DIFFERENT jobs.
+         *
+         * response.id
+         *     ↓
+         * previous_response_id
+         *     ↓
+         * connects MODEL TURNS
+         *
+         *
+         * toolCall.call_id
+         *     ↓
+         * function_call_output.call_id
+         *     ↓
+         * connects a TOOL REQUEST to its TOOL RESULT
+         */
+        previousResponseId = response.id;
+
+        /**
+         * STEP 9 — Make the calculator result the input for the
+         * NEXT model request.
+         *
+         * We do NOT do this anymore:
+         *
+         *   agentInput = [
+         *       ...agentInput,
+         *       ...response.output,
+         *       toolOutput,
+         *   ];
+         *
+         * Why?
+         *
+         * We are using previous_response_id to continue from the
+         * previous model response.
+         *
+         * Therefore the only NEW information we need to send is:
+         *
+         *   function_call_output
+         *
+         * Conceptually:
+         *
+         *   previous_response_id
+         *           │
+         *           │
+         *           ▼
+         *   previous model response
+         *
+         *           +
+         *
+         *   function_call_output
+         *       output: "1161"
+         *
+         *           ↓
+         *
+         *       MODEL AGAIN
+         */
+        agentInput = [
+            toolOutput,
+        ];
+
+        /**
+         * STEP 10 — Reach the end of this while-loop iteration.
+         *
+         * There is:
+         *
+         *   no return
+         *   no break
+         *
+         * here.
+         *
+         * Therefore while (true) automatically begins another
+         * iteration.
+         *
+         *
+         * ITERATION 1
+         *
+         *   User prompt
+         *       ↓
+         *   Model
+         *       ↓
+         *   calculator function_call
+         *       ↓
+         *   calculator()
+         *       ↓
+         *   1161
+         *       ↓
+         *   function_call_output
+         *
+         *
+         * ITERATION 2
+         *
+         *   previous_response_id
+         *       +
+         *   function_call_output: "1161"
+         *       ↓
+         *   Model again
+         *       │
+         *       ├── calculator call → another loop iteration
+         *       │
+         *       └── final answer → return → STOP
+         *
+         *
+         * IMPORTANT:
+         *
+         * We still handle only ONE function_call during each
+         * iteration.
+         *
+         * Multiple tool calls from ONE model response belong
+         * to Lesson 002-005.
+         */
     }
-
-    console.log("Tool result:", toolResult);
-
-    /**
-     * STEP 5
-     *
-     * Return the tool request and tool result so we can inspect them.
-     *
-     * For example:
-     *
-     *   Model requests:
-     *
-     *     calculator({
-     *       operation: "multiply",
-     *       a: 27,
-     *       b: 43
-     *     })
-     *
-     *             ↓
-     *
-     *   Our application executes:
-     *
-     *     calculator("multiply", 27, 43)
-     *
-     *             ↓
-     *
-     *   Result:
-     *
-     *     1161
-     *
-     *
-     * IMPORTANT:
-     *
-     * We STOP here in Lesson 002-003.
-     *
-     * We are NOT sending 1161 back to the model yet.
-     *
-     * Lesson 002-004 will introduce the agent loop:
-     *
-     *   Model
-     *       ↓
-     *   function_call
-     *       ↓
-     *   Tool execution
-     *       ↓
-     *   Tool result
-     *       ↓
-     *   Model again
-     */
-    return Response.json({
-        toolCall,
-        toolResult,
-    });
 }
